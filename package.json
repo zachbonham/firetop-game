@@ -1,0 +1,14 @@
+{
+  "name": "firetop-game",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Async multiplayer web board game inspired by The Warlock of Firetop Mountain",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "sim": "npm run sim -w @firetop/engine --"
+  },
+  "engines": { "node": ">=20" }
+}
