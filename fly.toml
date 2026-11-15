@@ -1,0 +1,43 @@
+# Fly.io config for Firetop (M6). One machine with one volume: SQLite needs its disk, and a Fly
+# volume belongs to one machine. Pattern from songbird (separate app, volume and backup bucket).
+
+app = "firetop-zb"
+primary_region = "dfw"
+# On stop, Fly sends SIGINT and waits this long before force-killing: room for open long-polls to
+# close and for Litestream's final sync after the server exits.
+kill_signal = "SIGINT"
+kill_timeout = 20
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  HOST = "0.0.0.0"
+  FIRETOP_DB = "/data/firetop.db"
+
+[mounts]
+  source = "firetop_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Stop the machine when nobody is connected and start it on the next request (a few seconds).
+  # The turn timer runs in the server, so overdue turns are swept as soon as it starts again;
+  # a player with a game open keeps it awake through the long-poll.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

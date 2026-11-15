@@ -1,0 +1,76 @@
+# Deploy to Fly.io on every push to main, after CI passes (M6). Off until the repository variable
+# FLY_DEPLOY is "true", so it can't fail before the Fly app exists.
+#
+# One-time setup (docs/deploy.md):
+#   1. fly tokens create deploy -a firetop-zb
+#   2. GitHub: Settings → Environments → "production": add the token as secret FLY_API_TOKEN
+#      (optionally require a reviewer to approve each deploy).
+#   3. GitHub: Settings → Variables → Actions: FLY_DEPLOY = true
+# App secrets (the Tigris keys) stay on Fly; this workflow never sees them.
+#
+# The schema only changes additively (db.ts migrate()), and every deploy snapshots the volume
+# first, so a bad deploy can be undone by restoring the snapshot.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One machine and one volume: never run two deploys at once, and never cancel one halfway.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  FLY_APP: firetop-zb
+
+jobs:
+  ci:
+    if: vars.FLY_DEPLOY == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to production
+    needs: ci
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://firetop-zb.fly.dev
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@1.6
+
+      - name: Snapshot the data volume
+        run: |
+          volume=$(flyctl volumes list -a "$FLY_APP" --json | jq -r '.[] | select(.name == "firetop_data") | .id' | head -n1)
+          if [ -z "$volume" ]; then
+            echo "::error::No firetop_data volume found on $FLY_APP"
+            exit 1
+          fi
+          flyctl volumes snapshots create "$volume"
+
+      # The image has no .git, so the commit is passed in; /api/health reports it.
+      - name: Work out the version
+        id: version
+        run: echo "version=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy
+        run: flyctl deploy -a "$FLY_APP" --remote-only --wait-timeout 5m --build-arg FIRETOP_VERSION=${{ steps.version.outputs.version }}
+
+      # The machine may be stopped; the first request starts it. The version check catches a deploy
+      # that reported success but left the old image running.
+      - name: Check health
+        run: |
+          health=$(curl --fail --silent --show-error --retry 10 --retry-delay 6 --retry-all-errors https://firetop-zb.fly.dev/api/health)
+          echo "$health"
+          running=$(echo "$health" | jq -r .version)
+          if [ "$running" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Expected version ${{ steps.version.outputs.version }}, but production reports $running"
+            exit 1
+          fi

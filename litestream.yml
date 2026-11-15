@@ -1,0 +1,13 @@
+# Continuous backup of the game database to the app's own Tigris bucket (M6).
+# BUCKET_NAME, AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are Fly secrets
+# that `fly storage create` sets on the app; Litestream reads the AWS_* keys itself.
+dbs:
+  - path: /data/firetop.db
+    # A fresh volume (lost or replaced machine) starts from the latest backup instead of empty.
+    restore-if-db-not-exists: true
+    replica:
+      type: s3
+      bucket: ${BUCKET_NAME}
+      path: firetop.db
+      endpoint: ${AWS_ENDPOINT_URL_S3}
+      region: auto

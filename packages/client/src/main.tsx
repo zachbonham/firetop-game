@@ -9,11 +9,12 @@ import "./styles.css";
  * Routes (no router library: there are only three pages):
  *   /online            online games: create one, invite links, your games
  *   /play/<id>#<seat>  an online game (the invite link)
- *   anything else      the local hot-seat test board
+ *   /local             the local hot-seat test board
+ *   /                  the test board in dev (npm run dev); the online lobby in production
  */
 function Root() {
-  const path = window.location.pathname;
-  if (path === "/online" || path === "/online/") {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/online" || (path === "/" && import.meta.env.PROD)) {
     document.title = "Firetop – online";
     return <Lobby />;
   }
