@@ -1,6 +1,6 @@
 import { BOARD, CAMP, ENTRANCE, LAIR, MAZE_SQUARE, isMazeTile, locationOf } from "./board.js";
 import { resolveCombat, type Fighter } from "./combat.js";
-import { ENTRY_ROW, openings, parseTile, tileAt, tileKey } from "./maze.js";
+import { ENTRY_ROW, openings, parseTile, reachableInMaze, tileAt, tileKey } from "./maze.js";
 import { ITEM_NAMES, USABLE_ITEMS, describeEncounter } from "./items.js";
 import { reachable } from "./movement.js";
 import { Rng } from "./rng.js";
@@ -102,6 +102,13 @@ function dispatch(s: GameState, rng: Rng, actor: Actor, a: Action): string | nul
       if (s.phase !== "roll") return "you can only turn a tile instead of rolling";
       if (!validRotation(a.rotation)) return "rotation must be 0-3";
       if (!canTurnTile(p, a.row, a.col)) return "you can only turn a revealed tile you stand on or next to";
+      // Never wall yourself off: inside the maze, you must still be able to walk back to the entrance.
+      if (isMazeTile(p.pos)) {
+        const trial = { ...p.maze, [tileKey(a.row, a.col)]: a.rotation };
+        if (!reachableInMaze(s.mazeTiles, trial).has(p.pos.slice(2))) {
+          return "that would cut you off from the maze entrance: keep a way back";
+        }
+      }
       p.maze[tileKey(a.row, a.col)] = a.rotation;
       log(s, "rotate", `${p.name} turned a maze tile.`, p.id);
       endTurn(s);

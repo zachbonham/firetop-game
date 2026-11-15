@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  ENTRY_ROW, ITEM_NAMES, LAIR, MAZE_SQUARE, candidateCombos, isMazeTile, openings,
+  ENTRY_ROW, ITEM_NAMES, LAIR, MAZE_SQUARE, candidateCombos, isMazeTile, mazeHint, openings, reachableFromEntry,
   type Action, type NodeId, type PlayerView, type PublicPlayer,
 } from "@firetop/engine";
 import { TileIcon } from "./Board.js";
@@ -34,6 +34,21 @@ export function turnableTiles(view: PlayerView): { row: number; col: number }[] 
   const [, r, c] = me.pos.split(":").map(Number) as [number, number, number];
   return mine.filter((t) => Math.abs(t.row - r) + Math.abs(t.col - c) <= 1);
 }
+
+/** Mirror of the engine rule: inside the maze, a re-turn must leave you a way back to the entrance. */
+export function keepsWayBack(view: PlayerView, row: number, col: number, rotation: number): boolean {
+  const me = view.me!;
+  if (!isMazeTile(me.pos)) return true;
+  const tiles = new Map(me.maze.map((t) => [`${t.row}:${t.col}`, t]));
+  return reachableFromEntry((r, c) => {
+    const t = tiles.get(`${r}:${c}`);
+    if (!t) return undefined;
+    return openings(t.type, r === row && c === col ? rotation : t.rotation);
+  }).has(me.pos.slice(2));
+}
+
+const sideOf = (side: number) => ["", "north", "east", "", "south", "", "", "", "west"][side] ?? "";
+const describeOpenings = (mask: number) => [1, 2, 4, 8].filter((d) => mask & d).map(sideOf).join("–");
 
 export function ActionPanel(p: Props) {
   const { view } = p;
@@ -97,6 +112,7 @@ export function ActionPanel(p: Props) {
   const turnable = turnableTiles(view);
   const selTile = p.selectedTile ? mine.maze.find((t) => `${t.row}:${t.col}` === p.selectedTile) : undefined;
   const selTurnable = selTile && turnable.some((t) => t.row === selTile.row && t.col === selTile.col);
+  const hint = mazeHint(view);
 
   return (
     <div className="actions">
@@ -119,6 +135,7 @@ export function ActionPanel(p: Props) {
           {here.map((t) => (
             <AttackButton key={t.id} target={t} label="Attack" onAttack={(stealKey) => p.onAction({ type: "attack", target: t.id, ...(stealKey !== undefined ? { stealKey } : {}) })} />
           ))}
+          {hint && <MazeHintBox hint={hint} view={view} onShow={p.setSelectedTile} />}
           {turnable.length > 0 && (
             <div className="choice">
               <p>
@@ -127,11 +144,19 @@ export function ActionPanel(p: Props) {
               </p>
               {selTile && selTurnable && (
                 <div className="rotations">
-                  {[0, 1, 2, 3].map((r) => (
-                    <button key={r} disabled={r === selTile.rotation} onClick={() => p.onAction({ type: "rotateTile", row: selTile.row, col: selTile.col, rotation: r })}>
-                      <TileIcon type={selTile.type} rotation={r} />
-                    </button>
-                  ))}
+                  {[0, 1, 2, 3].map((r) => {
+                    const cuts = !keepsWayBack(view, selTile.row, selTile.col, r);
+                    return (
+                      <button
+                        key={r}
+                        disabled={r === selTile.rotation || cuts}
+                        title={cuts ? "This would cut you off from the maze entrance" : `Opens ${describeOpenings(openings(selTile.type, r))}`}
+                        onClick={() => p.onAction({ type: "rotateTile", row: selTile.row, col: selTile.col, rotation: r })}
+                      >
+                        <TileIcon type={selTile.type} rotation={r} />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -223,6 +248,27 @@ function GuessChest({ view, onGuess }: { view: PlayerView; onGuess: (keys: numbe
       <button className="primary" disabled={picked.length !== need} onClick={() => { onGuess(picked); setPicked([]); }}>
         Open the chest (wrong: -{view.config.wrongGuessDamage} Stamina)
       </button>
+    </div>
+  );
+}
+
+/** Shown when the player's revealed maze has no way forward. */
+function MazeHintBox({ hint, view, onShow }: { hint: NonNullable<ReturnType<typeof mazeHint>>; view: PlayerView; onShow: (key: string | null) => void }) {
+  if (hint.kind === "rotate") {
+    const t = view.me!.maze.find((x) => x.row === hint.row && x.col === hint.col);
+    return (
+      <div className="choice maze-hint">
+        <p>
+          <b>No way forward.</b> Re-turn tile {hint.row},{hint.col} so it opens {t ? describeOpenings(openings(t.type, hint.rotation)) : "the other way"}.
+        </p>
+        <button onClick={() => onShow(`${hint.row}:${hint.col}`)}>Show me</button>
+      </div>
+    );
+  }
+  const [r, c] = hint.goal.split(":");
+  return (
+    <div className="choice maze-hint">
+      <p><b>No way forward from here.</b> Walk back to tile {r},{c}, then re-turn the next tile.</p>
     </div>
   );
 }

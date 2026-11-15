@@ -236,3 +236,5 @@ a.button.primary { background: var(--accent); color: #1a1a1a; font-weight: 600; 
   .seats td:nth-child(5) { grid-column: 4; grid-row: 1; }
   .seats input, .seats select { width: 100%; box-sizing: border-box; }
 }
+.maze-hint { border-top-color: #7fd0ff; }
+.maze-hint b { color: #7fd0ff; }

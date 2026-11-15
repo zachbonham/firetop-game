@@ -69,6 +69,43 @@ export function tileAt(tiles: readonly TileType[], r: number, c: number): TileTy
   return tiles[r * MAZE_SIZE + c] as TileType;
 }
 
+/**
+ * Revealed tiles ("r:c" keys) a player can walk to from the maze square through
+ * their own turned tiles: every step needs both tiles open toward each other.
+ * `open(r, c)` is a tile's openings as the player turned it, or undefined if
+ * they haven't revealed it.
+ */
+export function reachableFromEntry(open: (r: number, c: number) => number | undefined): Set<string> {
+  const seen = new Set<string>();
+  const entry = open(ENTRY_ROW, 0);
+  if (entry === undefined || !(entry & W)) return seen;
+  const queue: [number, number][] = [[ENTRY_ROW, 0]];
+  seen.add(tileKey(ENTRY_ROW, 0));
+  while (queue.length) {
+    const [r, c] = queue.shift()!;
+    const o = open(r, c)!;
+    for (const dir of DIRS) {
+      if (!(o & dir)) continue;
+      const [nr, nc] = step(r, c, dir);
+      const key = tileKey(nr, nc);
+      if (!inBounds(nr, nc) || seen.has(key)) continue;
+      const no = open(nr, nc);
+      if (no === undefined || !(no & opposite(dir))) continue;
+      seen.add(key);
+      queue.push([nr, nc]);
+    }
+  }
+  return seen;
+}
+
+/** reachableFromEntry for a player's maze record ("r:c" -> rotation). */
+export function reachableInMaze(tiles: readonly TileType[], maze: Record<string, number>): Set<string> {
+  return reachableFromEntry((r, c) => {
+    const rot = maze[tileKey(r, c)];
+    return rot === undefined ? undefined : openings(tileAt(tiles, r, c), rot);
+  });
+}
+
 /** Can this tile type connect entry side `a` to exit side `b` under some rotation? */
 export function canConnect(type: TileType, a: number, b: number): boolean {
   for (let rot = 0; rot < 4; rot++) {

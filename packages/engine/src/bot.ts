@@ -5,7 +5,7 @@
  */
 import { BOARD, LAIR, MAZE_SQUARE, isMazeTile } from "./board.js";
 import { candidateCombos } from "./combos.js";
-import { E, ENTRY_ROW, MAZE_SIZE, N, S, W, openings, rotate } from "./maze.js";
+import { E, ENTRY_ROW, MAZE_SIZE, N, S, W, openings, reachableFromEntry, rotate } from "./maze.js";
 import type { Action, NodeId, TileType } from "./types.js";
 import type { MazeTileView, PlayerView } from "./view.js";
 
@@ -185,6 +185,18 @@ export function botAction(view: PlayerView): Action {
   return { type: "move", to: best.to };
 }
 
+/**
+ * For the player's own screen: if they're in the maze area with no open way
+ * forward, what to do about it (the bot's own planner). null = not boxed in.
+ */
+export function mazeHint(view: PlayerView): MazePlan | null {
+  const me = view.me;
+  if (!me || !(isMazeTile(me.pos) || me.pos === MAZE_SQUARE)) return null;
+  const mazeView = new Map(me.maze.map((t) => [`${t.row}:${t.col}`, openings(t.type, t.rotation)]));
+  if (mazeHasProgress(me.pos, mazeView)) return null;
+  return planMaze(me.pos, me.maze);
+}
+
 /** Can the bot still reach an unexplored tile or the exit through its revealed tiles? */
 function mazeHasProgress(pos: NodeId, maze: Map<string, number>): boolean {
   if (pos === MAZE_SQUARE) {
@@ -265,7 +277,7 @@ function tileDistance(start: string, goal: string, maze: Map<string, number>): n
   return 99;
 }
 
-type MazePlan = { kind: "rotate"; row: number; col: number; rotation: number } | { kind: "walk"; goal: string };
+export type MazePlan = { kind: "rotate"; row: number; col: number; rotation: number } | { kind: "walk"; goal: string };
 
 function rotationFor(type: TileType, sides: number): number | null {
   for (let r = 0; r < 4; r++) if ((rotate(BASE_OF(type), r) & sides) === sides) return r;
@@ -276,67 +288,74 @@ function BASE_OF(type: TileType): number {
 }
 
 /**
- * When stuck: find a route through revealed tiles assuming any tile can be re-turned,
- * then fix the first broken link (re-turn it if adjacent, otherwise walk next to it).
+ * When stuck: find a route from the maze entrance through revealed tiles to
+ * unexplored ground or the exit, assuming any tile can be re-turned, then fix
+ * the first broken link on it: re-turn that tile if the bot can reach it from
+ * here (on it or next to it) without cutting itself off from the entrance (the
+ * rule), otherwise walk next to it. Planning from the entrance, not from where
+ * the bot stands, is what keeps every fix on a route the bot can walk back along.
  */
-function planMaze(pos: NodeId, tiles: MazeTileView[]): MazePlan | null {
+export function planMaze(pos: NodeId, tiles: MazeTileView[]): MazePlan | null {
   const info = new Map(tiles.map((t) => [`${t.row}:${t.col}`, t]));
-  const atSquare = pos === MAZE_SQUARE;
-  const startKey = atSquare ? `${ENTRY_ROW}:0` : pos.slice(2);
-  if (!info.has(startKey)) return null;
+  const entryKey = `${ENTRY_ROW}:0`;
+  if (!info.has(entryKey)) return null;
   type Node = { key: string; from: number; out: number; prev: Node | null };
-  const startFrom = atSquare ? W : 0;
-  const queue: Node[] = [];
-  const seen = new Set<string>();
-  const push = (key: string, from: number, prev: Node | null) => {
-    const id = `${key}/${from}`;
-    if (seen.has(id)) return;
-    seen.add(id);
-    queue.push({ key, from, out: 0, prev });
-  };
-  push(startKey, startFrom, null);
+  const queue: Node[] = [{ key: entryKey, from: W, out: 0, prev: null }];
+  const seen = new Set<string>([`${entryKey}/${W}`]);
   let end: Node | null = null;
   while (queue.length && !end) {
     const node = queue.shift()!;
     const t = info.get(node.key)!;
-    const base = openings(t.type, 0);
     for (const d of DIRS) {
-      if (d === node.from) continue;
-      const need = node.from | d;
-      if (rotationFor(t.type, need) === null || !base) continue;
+      if (d === node.from || rotationFor(t.type, node.from | d) === null) continue;
       const [nr, nc] = stepRC(t.row, t.col, d);
-      const exitHere = d === E && t.col === MAZE_SIZE - 1;
-      const frontier = inBounds(nr, nc) && !info.has(`${nr}:${nc}`);
-      if (exitHere || frontier) {
+      if ((d === E && t.col === MAZE_SIZE - 1) || (inBounds(nr, nc) && !info.has(`${nr}:${nc}`))) {
         end = { ...node, out: d };
         break;
       }
-      if (inBounds(nr, nc)) {
-        const back = d === N ? S : d === S ? N : d === E ? W : E;
-        const child: Node = { key: `${nr}:${nc}`, from: back, out: 0, prev: { ...node, out: d } };
-        const id = `${child.key}/${back}`;
-        if (!seen.has(id)) {
-          seen.add(id);
-          queue.push(child);
-        }
-      }
+      if (!inBounds(nr, nc)) continue;
+      // A route can't use the same tile twice: one tile can't be turned two ways at once.
+      const nk = `${nr}:${nc}`;
+      let onRoute = false;
+      for (let p: Node | null = node; p; p = p.prev) if (p.key === nk) onRoute = true;
+      if (onRoute) continue;
+      const back = d === N ? S : d === S ? N : d === E ? W : E;
+      const id = `${nr}:${nc}/${back}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      queue.push({ key: `${nr}:${nc}`, from: back, out: 0, prev: { ...node, out: d } });
     }
   }
   if (!end) return null;
   const path: Node[] = [];
   for (let n: Node | null = end; n; n = n.prev) path.unshift(n);
+
+  const here = isMazeTile(pos) ? pos.slice(2) : null;
+  const rotations = new Map(tiles.map((t) => [`${t.row}:${t.col}`, t.rotation]));
+  const reachableAfter = (key: string, rotation: number) =>
+    reachableFromEntry((r, c) => {
+      const k = `${r}:${c}`;
+      const t = info.get(k);
+      return t ? openings(t.type, k === key ? rotation : rotations.get(k)!) : undefined;
+    });
   for (let i = 0; i < path.length; i++) {
     const n = path[i]!;
     const t = info.get(n.key)!;
-    const o = openings(t.type, t.rotation);
     const need = n.from | n.out;
-    if ((o & need) === need) continue;
-    const rotation = rotationFor(t.type, need)!;
-    if (i === 0) return { kind: "rotate", row: t.row, col: t.col, rotation };
-    const prev = path[i - 1]!;
-    const here = atSquare ? null : pos.slice(2);
-    if (here === prev.key || (i === 1 && here === path[0]!.key)) return { kind: "rotate", row: t.row, col: t.col, rotation };
-    return { kind: "walk", goal: prev.key };
+    if ((openings(t.type, t.rotation) & need) === need) continue;
+    // Tile i is the first broken link. Can the bot turn it from where it stands?
+    const adjacent = here !== null && (Math.abs(t.row - Number(here.split(":")[0])) + Math.abs(t.col - Number(here.split(":")[1])) <= 1);
+    const canTurn = here === null ? pos === MAZE_SQUARE && n.key === entryKey : adjacent;
+    if (canTurn) {
+      for (let r = 0; r < 4; r++) {
+        if ((openings(t.type, r) & need) !== need) continue;
+        if (here === null || reachableAfter(n.key, r).has(here)) return { kind: "rotate", row: t.row, col: t.col, rotation: r };
+      }
+    }
+    // Walk next to it: the tile before it on the route is reachable from the entrance.
+    const goal = i === 0 ? n.key : path[i - 1]!.key;
+    if (goal === here) return null; // nothing legal from here (rare): fall back to rolling
+    return { kind: "walk", goal };
   }
   return null;
 }
