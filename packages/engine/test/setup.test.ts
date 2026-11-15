@@ -18,6 +18,15 @@ describe("createGame", () => {
   it("always deals a crossable maze", () => {
     for (let seed = 1; seed <= 200; seed++) expect(isSolvable(newGame(seed).mazeTiles)).toBe(true);
   });
+  it("has no empty rooms and puts an item in every treasure room", () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      const rooms = Object.values(newGame(seed).rooms).map((r) => r.encounter);
+      expect(rooms.some((e) => e.kind === "empty")).toBe(false);
+      const treasures = rooms.filter((e) => e.kind === "treasure");
+      expect(treasures).toHaveLength(4);
+      expect(treasures.every((e) => e.kind === "treasure" && typeof e.item === "string")).toBe(true);
+    }
+  });
   it("rejects bad player counts and duplicate ids", () => {
     expect(() => createGame({ seed: 1, players: [{ id: "a", name: "A", archetype: "warrior" }] })).toThrow();
     expect(() =>

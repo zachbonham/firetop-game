@@ -1,6 +1,6 @@
 export * from "./types.js";
-export { ARCHETYPES, DEFAULT_CONFIG, MONSTERS, MAZE_DEAL } from "./config.js";
-export { BOARD, CONNECTIONS, ROOM_IDS, ROOM_SIZES, ENTRANCE, LAIR, MAZE_SQUARE, locationOf, isMazeTile, boardDistances } from "./board.js";
+export { ARCHETYPES, DEFAULT_CONFIG, MONSTERS, MAZE_DEAL, RULES_VERSION } from "./config.js";
+export { BOARD, CONNECTIONS, ROOM_IDS, ROOM_SIZES, ENTRANCE, CAMP, LAIR, MAZE_SQUARE, locationOf, isMazeTile, boardDistances } from "./board.js";
 export type { Board, Square } from "./board.js";
 export { MAZE_SIZE, ENTRY_ROW, N, E, S, W, openings, rotate, isSolvable } from "./maze.js";
 export { reachable } from "./movement.js";
@@ -12,6 +12,7 @@ export { createGame } from "./setup.js";
 export type { NewGameOptions, NewPlayer } from "./setup.js";
 export { applyAction, currentPlayer } from "./reducer.js";
 export { playerView, HIDDEN_MAZE_POS } from "./view.js";
-export type { PlayerView, PublicPlayer, PublicRoom, PublicEncounter, MazeTileView } from "./view.js";
+export type { PlayerView, PublicPlayer, PublicRoom, PublicEncounter, PeekedEncounter, MazeTileView } from "./view.js";
 export { checkInvariants } from "./invariants.js";
 export { botAction } from "./bot.js";
+export { ITEM_NAMES, INSTANT_ITEMS, USABLE_ITEMS, describeEncounter } from "./items.js";

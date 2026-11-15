@@ -14,6 +14,15 @@ export function act(s: GameState, actor: string, a: Action): GameState {
   return r.state;
 }
 
+/** Take key `k` out of whatever room setup hid it in (to keep invariants when a test hands it out). */
+export function removeKey(s: GameState, k: number) {
+  for (const r of Object.values(s.rooms)) {
+    const e = r.encounter;
+    if (e.kind === "monster" && e.loot === k) e.loot = null;
+    if (e.kind === "treasure" && e.key === k) e.key = null;
+  }
+}
+
 /** Edit a state directly to set up a scenario (tests only). */
 export function patch(s: GameState, fn: (s: GameState) => void): GameState {
   const c = structuredClone(s);

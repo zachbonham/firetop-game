@@ -13,9 +13,14 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
 - Rule numbers belong in `src/config.ts` (or `board.ts` for the layout), not inline.
 - After rule changes run `npm test` and `npm run sim -- 100` and note game-length / win-rate shifts.
 - Keep docs/rules.md in sync with what the engine actually does.
+- Bump `RULES_VERSION` (config.ts) whenever a change would make an old action log replay
+  differently (rules, setup randomization, board). Bot changes don't need a bump. Saves refuse
+  other versions.
 
 ## Commands
 - `npm test`, `npm run typecheck`, `npm run build`, `npm run sim -- <games> [--config overrides.json]`
+- `npm run replay -- playtests/<file>.json [--all]`: replay a saved game and print secrets,
+  final state, stats and the full log. Local games autosave to `playtests/autosave/` (gitignored).
 - `npm run dev`: local hot-seat test board (packages/client, Vite). It imports the engine
   source directly via an alias, so rule edits hot-reload; it only talks to the engine through
   `createGame` / `applyAction` / `playerView` / `botAction`, like the future server will.

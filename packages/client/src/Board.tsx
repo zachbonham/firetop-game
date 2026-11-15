@@ -57,7 +57,10 @@ export function Board(p: Props) {
     let secret = false;
     if (seen) label = encounterLabel(god ? real.encounter : rooms![room]!.encounter!);
     else if (god) {
-      label = encounterLabel(real.encounter, true);
+      label = encounterLabel(real.encounter);
+      secret = true;
+    } else if (p.view!.me?.peeks[room]) {
+      label = `📜 ${encounterLabel(p.view!.me.peeks[room]!)}`;
       secret = true;
     }
     return (
@@ -70,7 +73,7 @@ export function Board(p: Props) {
   });
 
   const squares = [...POSITIONS.entries()].map(([id, pt]) => {
-    const big = id === "entrance" || id === "maze" || id === "lair";
+    const big = id === "entrance" || id === "camp" || id === "maze" || id === "lair";
     const target = p.moveTargets.has(id);
     const cls = ["sq", big ? "big" : "", id.startsWith("p:") ? "path" : "", target ? "target" : "", p.selected === id ? "selected" : ""].join(" ");
     return (
@@ -80,7 +83,7 @@ export function Board(p: Props) {
         <circle cx={pt.x} cy={pt.y} r={big ? 20 : 9} className={cls}>
           <title>{id}</title>
         </circle>
-        {big && <text x={pt.x} y={pt.y + (id === "lair" ? 40 : -26)} className="big-label">{id === "maze" ? "Maze" : id === "lair" ? "Lair" : "Entrance"}</text>}
+        {big && <text x={pt.x} y={pt.y + (id === "lair" ? 40 : -26)} className="big-label">{id === "maze" ? "Maze" : id === "lair" ? "Lair" : id === "camp" ? "⛺ Camp" : "Entrance"}</text>}
       </g>
     );
   });

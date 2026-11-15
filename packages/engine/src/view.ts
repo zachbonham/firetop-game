@@ -1,7 +1,7 @@
 import { isMazeTile } from "./board.js";
 import { tileAt } from "./maze.js";
 import { reachable } from "./movement.js";
-import type { ChestGuess, Encounter, GameConfig, GameEvent, NodeId, Phase, PlayerSettings, TileType } from "./types.js";
+import type { ChestGuess, Encounter, GameConfig, GameEvent, ItemId, NodeId, Phase, PlayerSettings, TileType } from "./types.js";
 import type { GameState } from "./types.js";
 
 /**
@@ -12,6 +12,11 @@ import type { GameState } from "./types.js";
 
 export type PublicEncounter =
   | { kind: "monster"; name: string; skill: number; stamina: number }
+  | Exclude<Encounter, { kind: "monster" }>;
+
+/** What a scroll showed the viewer about a room: everything, including a monster's key. */
+export type PeekedEncounter =
+  | { kind: "monster"; name: string; skill: number; stamina: number; guardsKey: number | null }
   | Exclude<Encounter, { kind: "monster" }>;
 
 export interface PublicRoom {
@@ -39,6 +44,8 @@ export interface PublicPlayer {
   skipNextTurn: boolean;
   protected: boolean;
   wizardBeaten: boolean;
+  items: ItemId[];
+  campReached: boolean;
 }
 
 export interface MazeTileView {
@@ -71,6 +78,8 @@ export interface PlayerView {
     pendingFlip?: { row: number; col: number; type: TileType; entrySide: number };
     /** Squares the viewer can move to right now (move phase, their turn). */
     moveOptions: { to: NodeId; flip: boolean; entrySide?: number }[];
+    /** Unrevealed rooms the viewer has looked into with a scroll. */
+    peeks: Record<string, PeekedEncounter>;
   };
 }
 
@@ -93,6 +102,8 @@ export function playerView(s: GameState, viewerId: string | null): PlayerView {
       skipNextTurn: p.skipNextTurn,
       protected: p.protected,
       wizardBeaten: p.wizardBeaten,
+      items: [...p.items],
+      campReached: p.campReached,
     };
   });
 
@@ -144,7 +155,16 @@ export function playerView(s: GameState, viewerId: string | null): PlayerView {
             return o;
           })
         : [];
-    view.me = { settings: { ...me.settings }, pos: me.pos, maze, moveOptions };
+    const peeks: Record<string, PeekedEncounter> = {};
+    for (const room of me.peeks) {
+      const r = s.rooms[room];
+      if (!r || r.revealed) continue;
+      const e = r.encounter;
+      peeks[room] = e.kind === "monster"
+        ? { kind: "monster", name: e.name, skill: e.skill, stamina: e.stamina, guardsKey: e.loot }
+        : { ...e };
+    }
+    view.me = { settings: { ...me.settings }, pos: me.pos, maze, moveOptions, peeks };
     if (s.pendingFlip && current.id === me.id) {
       const { row, col, entrySide } = s.pendingFlip;
       view.me.pendingFlip = { row, col, type: tileAt(s.mazeTiles, row, col), entrySide };

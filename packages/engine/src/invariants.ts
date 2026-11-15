@@ -14,7 +14,7 @@ export function checkInvariants(s: GameState): string[] {
     const e = r.encounter;
     if (r.cleared) continue;
     if (e.kind === "monster" && e.loot !== null) seen.push(e.loot);
-    if (e.kind === "treasure" && e.item === "key") seen.push(e.key);
+    if (e.kind === "treasure" && e.key !== null) seen.push(e.key);
   }
   const sorted = [...seen].sort((a, b) => a - b);
   const expected = Array.from({ length: n }, (_, i) => i + 1);

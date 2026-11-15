@@ -1,5 +1,5 @@
 import {
-  applyAction, createGame,
+  RULES_VERSION, applyAction, createGame,
   type Action, type Actor, type Archetype, type GameConfig, type GameState,
 } from "@firetop/engine";
 
@@ -20,6 +20,8 @@ export interface SessionSetup {
   seed: number;
   seats: Seat[];
   config: Partial<GameConfig>;
+  /** When the game was started (ISO time); names autosave files. */
+  startedAt?: string;
 }
 
 export interface LoggedAction {
@@ -37,6 +39,11 @@ export const SAVE_FORMAT = "firetop-local/1";
 
 export interface SavedGame {
   format: typeof SAVE_FORMAT;
+  /** Engine RULES_VERSION the game was played under. Older saves lack it (= 1). */
+  rulesVersion: number;
+  /** Git commit of the build that wrote the save, when known. */
+  commit?: string;
+  savedAt?: string;
   setup: SessionSetup;
   actions: LoggedAction[];
 }
@@ -89,16 +96,32 @@ export function undoHumanTurn(session: Session): Session {
   return replay(session.setup, actions);
 }
 
-export function toSave(session: Session): SavedGame {
-  return { format: SAVE_FORMAT, setup: session.setup, actions: session.actions };
+export function toSave(session: Session, meta: { commit?: string; savedAt?: string } = {}): SavedGame {
+  return { format: SAVE_FORMAT, rulesVersion: RULES_VERSION, ...meta, setup: session.setup, actions: session.actions };
 }
 
+/**
+ * Rebuild a saved game. Saves from a different RULES_VERSION are refused: even
+ * if their actions still happened to be legal, the game would play out
+ * differently from the one that was recorded.
+ */
 export function fromSave(data: unknown): Session {
   const saved = data as Partial<SavedGame>;
   if (saved?.format !== SAVE_FORMAT || !saved.setup || !Array.isArray(saved.actions)) {
     throw new Error(`not a ${SAVE_FORMAT} save file`);
   }
+  const version = saved.rulesVersion ?? 1;
+  if (version !== RULES_VERSION) {
+    const at = saved.commit ? ` (commit ${saved.commit})` : "";
+    throw new Error(`this game was played under rules v${version}${at}; the current rules are v${RULES_VERSION}. Check out that version to replay it.`);
+  }
   return replay(saved.setup, saved.actions);
+}
+
+/** File-name-safe id for a session, from its start time and seed. */
+export function sessionName(setup: SessionSetup): string {
+  const t = (setup.startedAt ?? "unknown").replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
+  return `${t}-seed${setup.seed}`;
 }
 
 export interface GameStats {

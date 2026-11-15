@@ -32,6 +32,7 @@ npm run build       # compiles packages/engine to dist/
 npm run sim -- 200  # balance simulation, 200 games per setup
 npm run sim -- 200 --config firetop-config.json  # ...with rule overrides
 npm run dev         # local test board at http://localhost:5173
+npm run replay -- playtests/autosave/<file>.json  # print a saved game in full
 ```
 
 ## Local test board (M2)
@@ -47,8 +48,14 @@ Everything runs in the browser against the engine; nothing is sent anywhere.
 - **Tuning tools**: bot speed (paused / step / ... / instant), *God view* (combination, hidden
   rooms and loot, the maze deal, everyone's real position), *Undo* / *Undo to human*
   (replays the action log, so dice don't change), *Timeout* (simulates the server's turn
-  timer), live stats, and *Save* / *Load* (seed + config + action log as JSON). The current
-  game is kept in localStorage; it is dropped if rule changes stop it from replaying.
+  timer), live stats, and *Save* / *Load* (seed + config + action log as JSON).
+- **Autosave**: while `npm run dev` is running, every game is written after each action to
+  `playtests/autosave/<start time>-seed<seed>.json` (gitignored; copy a game into `playtests/` to
+  keep or share it). Saves record the rules version and git commit; a save from other rules
+  won't load (check out its commit to replay it). A browser game that no longer loads is copied
+  to `playtests/autosave/unloadable-*.json` rather than lost.
+- **Reviewing a game**: `npm run replay -- <file>` prints the combination, every room, final
+  players, stats and the full log including private entries (`--all` adds the action list).
 
 ## Engine in one minute
 

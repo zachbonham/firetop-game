@@ -6,3 +6,6 @@ coverage/
 *.sqlite
 *.sqlite-*
 .env
+
+# Local playtest autosaves (copy a game out of here to keep it)
+playtests/autosave/
