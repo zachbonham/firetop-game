@@ -1,0 +1,60 @@
+# Weekly restore drill: restore the latest Litestream backup from the Tigris bucket onto the runner
+# and check the database is intact. A backup nobody has restored is not yet a backup.
+# Off until the repository variable BACKUP_CHECK is "true".
+#
+# One-time setup (repository secrets; a read-only Tigris key is enough, see docs/deploy.md):
+#   BACKUP_BUCKET_NAME, BACKUP_ENDPOINT_URL_S3, BACKUP_ACCESS_KEY_ID, BACKUP_SECRET_ACCESS_KEY
+# The restored database holds players' games: it stays on the runner and is never uploaded.
+name: Backup check
+
+on:
+  schedule:
+    - cron: "41 9 * * 1" # Mondays 09:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LITESTREAM_VERSION: 0.5.17
+  LITESTREAM_SHA256: cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d
+
+jobs:
+  restore:
+    name: Restore latest backup
+    if: vars.BACKUP_CHECK == 'true'
+    runs-on: ubuntu-latest
+    env:
+      BUCKET_NAME: ${{ secrets.BACKUP_BUCKET_NAME }}
+      AWS_ENDPOINT_URL_S3: ${{ secrets.BACKUP_ENDPOINT_URL_S3 }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Litestream
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/litestream.tar.gz" \
+            "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-x86_64.tar.gz"
+          echo "${LITESTREAM_SHA256}  $RUNNER_TEMP/litestream.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/litestream.tar.gz" -C "$RUNNER_TEMP" litestream
+
+      # Same config as production; /data/firetop.db only names which replica to restore.
+      - name: Restore
+        run: |
+          "$RUNNER_TEMP/litestream" restore -config litestream.yml -o "$RUNNER_TEMP/restore.db" /data/firetop.db
+
+      - name: Check integrity
+        run: |
+          result=$(sqlite3 "$RUNNER_TEMP/restore.db" "PRAGMA integrity_check;")
+          if [ "$result" != "ok" ]; then
+            echo "::error::Restored database failed integrity_check: $result"
+            exit 1
+          fi
+          games=$(sqlite3 "$RUNNER_TEMP/restore.db" "SELECT count(*) FROM games;")
+          actions=$(sqlite3 "$RUNNER_TEMP/restore.db" "SELECT count(*) FROM actions;")
+          echo "Backup restored and intact: $games game(s), $actions action(s)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove restored copy
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/restore.db*

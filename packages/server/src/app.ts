@@ -3,6 +3,7 @@ import { RULES_VERSION, type Action } from "@firetop/engine";
 import { Db } from "./db.js";
 import { ApiError, GameStore, type NewGameInput, type StoreOptions } from "./games.js";
 import { actionBody, createGameBody, gameParams, gameQuery } from "./schemas.js";
+import { serveClient } from "./static.js";
 
 export interface ServerOptions extends StoreOptions {
   /** SQLite file path, or ":memory:". */
@@ -14,6 +15,10 @@ export interface ServerOptions extends StoreOptions {
   logger?: boolean;
   /** How often to time out overdue turns (ms). Default 60 000; 0 turns the sweeper off. */
   sweepIntervalMs?: number;
+  /** Built client to serve at / (production). Unset in dev, where Vite serves it. */
+  clientDir?: string;
+  /** Build version reported by /api/health (e.g. the git commit). */
+  version?: string;
 }
 
 export interface Server {
@@ -40,17 +45,19 @@ export function buildServer(opts: ServerOptions): Server {
   });
   // The turn timer: time out overdue human turns every minute.
   const sweepMs = opts.sweepIntervalMs ?? 60_000;
-  const sweeper = sweepMs > 0
-    ? setInterval(() => {
-      try {
-        const n = store.sweep();
-        if (n) app.log.info(`timed out ${n} turn${n === 1 ? "" : "s"}`);
-      } catch (e) {
-        app.log.error(e);
-      }
-    }, sweepMs)
-    : null;
+  const sweep = () => {
+    try {
+      const n = store.sweep();
+      if (n) app.log.info(`timed out ${n} turn${n === 1 ? "" : "s"}`);
+    } catch (e) {
+      app.log.error(e);
+    }
+  };
+  const sweeper = sweepMs > 0 ? setInterval(sweep, sweepMs) : null;
   sweeper?.unref();
+  // Also sweep right away: on Fly the machine sleeps when nobody is connected, so deadlines
+  // that passed while it was stopped are applied as soon as someone wakes it.
+  if (sweepMs > 0) setTimeout(sweep, 0).unref();
   app.addHook("onClose", async () => {
     if (sweeper) clearInterval(sweeper);
     db.close();
@@ -70,7 +77,8 @@ export function buildServer(opts: ServerOptions): Server {
     return reply.status(500).send({ error: "internal error", code: "internal" });
   });
 
-  app.get("/api/health", async () => ({ ok: true, rulesVersion: RULES_VERSION }));
+  app.get("/api/health", async () => ({ ok: true, rulesVersion: RULES_VERSION, version: opts.version ?? "dev" }));
+  if (opts.clientDir) serveClient(app, opts.clientDir);
 
   app.post<{ Body: NewGameInput }>("/api/games", { schema: { body: createGameBody } }, async (req, reply) => {
     const created = store.create(req.body);

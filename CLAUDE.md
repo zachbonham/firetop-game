@@ -33,4 +33,9 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
 - `npm run server`: game server (packages/server, Fastify + `node:sqlite`, run with `tsx watch`,
   engine source via a tsconfig `paths` alias). Env: `FIRETOP_DB` (default `data/firetop.db`,
   gitignored), `PORT` (3000), `HOST` (127.0.0.1), `PUBLIC_URL` (invite link prefix). Its
-  `build` script is a typecheck only; bundling is left to deploy (M6).
+  `build` typechecks, then bundles `src/main.ts` with esbuild into `dist/server.mjs` (engine and
+  Fastify inlined) for the Docker image. Production also sets `FIRETOP_CLIENT_DIR` (serve the
+  built client at /) and `FIRETOP_VERSION` (reported by `/api/health`).
+- Deploy (M6): `Dockerfile`, `fly.toml`, `litestream.yml`, `start.sh` and `.github/workflows/`.
+  See docs/deploy.md. Never run `fly` commands that create, scale or destroy resources without
+  the user's go-ahead.

@@ -115,7 +115,7 @@ export function Lobby() {
           </ul>
         </section>
       )}
-      <p className="hint"><a href="/">Local test board</a> (hot-seat, bots, balance tools)</p>
+      <p className="hint"><a href="/local">Local test board</a> (hot-seat, bots, balance tools)</p>
     </div>
   );
 }

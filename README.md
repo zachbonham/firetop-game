@@ -37,6 +37,14 @@ npm run replay -- playtests/autosave/<file>.json  # print a saved game in full
 npm run server      # game server at http://127.0.0.1:3000 (data in data/firetop.db)
 ```
 
+## Deploy (M6)
+
+One Fly.io machine with a volume for the SQLite file and Litestream backups to a Tigris bucket.
+In production the server also serves the client, so `/` is the online lobby and `/local` is the
+test board. CI (typecheck, test, build) runs on every push and pull request. Deploys run on
+merge to `main` once they're turned on. [docs/deploy.md](docs/deploy.md) has the one-time Fly
+setup, the GitHub secrets, and how to restore.
+
 ## Online client
 
 Play over the network against the server (M3/M4). For local development, run both:

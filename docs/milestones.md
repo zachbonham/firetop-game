@@ -9,4 +9,4 @@
 | M4 | Turn timer (deadline column, swept every minute) + public game log | Done (24h default; 1h/12h/24h/3d per game) |
 | M5 | Board art (SVG map, maze tiles, card popups), phone layout | Done (art slots for hand-made art: docs/art.md) |
 | M5b | Online client: lobby with invite links, play page over the server API | Done |
-| M6 | Deploy to Fly.io (one machine, persistent disk, Litestream backups), playtest | |
+| M6 | Deploy to Fly.io (one machine, persistent disk, Litestream backups), playtest | In progress: config, image and CI ready (docs/deploy.md); Fly setup and playtest next |
