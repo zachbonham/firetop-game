@@ -24,6 +24,20 @@ describe("createGame", () => {
       createGame({ seed: 1, players: [{ id: "a", name: "A", archetype: "warrior" }, { id: "a", name: "B", archetype: "lucky" }] }),
     ).toThrow();
   });
+  it("takes archetype stats from config overrides", () => {
+    const s = createGame({
+      seed: 1,
+      players: [{ id: "a", name: "A", archetype: "warrior" }, { id: "b", name: "B", archetype: "lucky" }],
+      config: {
+        archetypes: {
+          warrior: { skill: 9, stamina: 16, luck: 2 },
+          survivor: { skill: 8, stamina: 20, luck: 2 },
+          lucky: { skill: 7, stamina: 15, luck: 5 },
+        },
+      },
+    });
+    expect(s.players.map((p) => [p.skill, p.maxStamina, p.luck])).toEqual([[9, 16, 2], [7, 15, 5]]);
+  });
   it("starts everyone at the entrance with archetype stats", () => {
     const s = newGame(1, 3);
     expect(s.players.map((p) => p.pos)).toEqual(["entrance", "entrance", "entrance"]);

@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyAction, playerView } from "../src/index.js";
+import { applyAction, botAction, playerView } from "../src/index.js";
 import { newGame } from "./helpers.js";
-import { decide } from "../sim/bot.js";
 
 describe("playerView never leaks secrets", () => {
   it("omits combination, maze deal, RNG and hidden encounters", () => {
     let s = newGame(3, 3);
     for (let i = 0; i < 150 && s.phase !== "finished"; i++) {
       const id = s.players[s.currentIndex]!.id;
-      const r = applyAction(s, id, decide(playerView(s, id)));
+      const r = applyAction(s, id, botAction(playerView(s, id)));
       if (!r.ok) throw new Error(r.error);
       s = r.state;
       for (const viewer of s.players) {
@@ -29,6 +28,10 @@ describe("playerView never leaks secrets", () => {
         expect(v.log.every((e) => !e.privateTo || e.privateTo === viewer.id)).toBe(true);
       }
     }
+  });
+  it("includes the public rule config", () => {
+    const s = newGame();
+    expect(playerView(s, "p1").config).toEqual(s.config);
   });
   it("a spectator view has no 'me' section", () => {
     expect(playerView(newGame(), null).me).toBeUndefined();

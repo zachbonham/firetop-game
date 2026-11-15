@@ -12,5 +12,6 @@ export { createGame } from "./setup.js";
 export type { NewGameOptions, NewPlayer } from "./setup.js";
 export { applyAction, currentPlayer } from "./reducer.js";
 export { playerView, HIDDEN_MAZE_POS } from "./view.js";
-export type { PlayerView, PublicPlayer, PublicRoom, MazeTileView } from "./view.js";
+export type { PlayerView, PublicPlayer, PublicRoom, PublicEncounter, MazeTileView } from "./view.js";
 export { checkInvariants } from "./invariants.js";
+export { botAction } from "./bot.js";

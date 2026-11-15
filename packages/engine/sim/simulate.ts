@@ -1,11 +1,25 @@
 /**
- * Balance simulation: npm run sim -- [gamesPerSetup]
+ * Balance simulation: npm run sim -- [gamesPerSetup] [--config overrides.json]
  * Plays scripted bots against each other and prints game length and win rates.
+ * The optional JSON file holds GameConfig overrides (e.g. {"restAmount": 3}),
+ * the same shape the local test board exports.
  */
-import type { Archetype } from "../src/index.js";
-import { simulate, type SimResult } from "./run.js";
+import { readFileSync } from "node:fs";
+import type { Archetype, GameConfig } from "../src/index.js";
+import { simulate as runOne, type SimResult } from "./run.js";
 
-const games = Number(process.argv[2] ?? 500);
+const args = process.argv.slice(2);
+const configAt = args.indexOf("--config");
+let config: Partial<GameConfig> | undefined;
+if (configAt >= 0) {
+  const file = args[configAt + 1];
+  if (!file) throw new Error("--config needs a file path");
+  config = JSON.parse(readFileSync(file, "utf8")) as Partial<GameConfig>;
+  args.splice(configAt, 2);
+  console.log(`Config overrides from ${file}: ${JSON.stringify(config)}`);
+}
+const games = Number(args[0] ?? 500);
+const simulate = (seed: number, arch: Archetype[]) => runOne(seed, arch, config ? { config } : {});
 const ARCH: Archetype[] = ["warrior", "survivor", "lucky"];
 
 function pct(n: number, d: number) {

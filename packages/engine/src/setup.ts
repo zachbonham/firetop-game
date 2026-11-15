@@ -1,4 +1,4 @@
-import { ARCHETYPES, DEFAULT_CONFIG, MONSTERS } from "./config.js";
+import { DEFAULT_CONFIG, MONSTERS } from "./config.js";
 import { BOARD, ENTRANCE } from "./board.js";
 import { dealMaze } from "./maze.js";
 import { Rng } from "./rng.js";
@@ -27,7 +27,7 @@ export function createGame(opts: NewGameOptions): GameState {
   const ids = new Set(opts.players.map((p) => p.id));
   if (ids.size !== opts.players.length) throw new Error("player ids must be unique");
 
-  const config: GameConfig = { ...DEFAULT_CONFIG, ...opts.config };
+  const config: GameConfig = structuredClone({ ...DEFAULT_CONFIG, ...opts.config });
   const rng = new Rng(opts.seed);
 
   const keys = Array.from({ length: config.keyCount }, (_, i) => i + 1);
@@ -74,7 +74,7 @@ export function createGame(opts: NewGameOptions): GameState {
   const mazeTiles = dealMaze(rng);
 
   const players: Player[] = opts.players.map((np) => {
-    const stats = ARCHETYPES[np.archetype];
+    const stats = config.archetypes[np.archetype];
     return {
       id: np.id,
       name: np.name,

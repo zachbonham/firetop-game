@@ -1,7 +1,7 @@
 import { isMazeTile } from "./board.js";
 import { tileAt } from "./maze.js";
 import { reachable } from "./movement.js";
-import type { ChestGuess, Encounter, GameEvent, NodeId, Phase, PlayerSettings, TileType } from "./types.js";
+import type { ChestGuess, Encounter, GameConfig, GameEvent, NodeId, Phase, PlayerSettings, TileType } from "./types.js";
 import type { GameState } from "./types.js";
 
 /**
@@ -50,6 +50,8 @@ export interface MazeTileView {
 
 export interface PlayerView {
   viewerId: string | null;
+  /** Rule numbers for this game (public). */
+  config: GameConfig;
   turn: number;
   phase: Phase;
   currentPlayerId: string;
@@ -115,6 +117,7 @@ export function playerView(s: GameState, viewerId: string | null): PlayerView {
 
   const view: PlayerView = {
     viewerId,
+    config: structuredClone(s.config),
     turn: s.turn,
     phase: s.phase,
     currentPlayerId: current.id,

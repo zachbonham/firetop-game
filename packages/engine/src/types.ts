@@ -17,6 +17,12 @@ export interface MonsterCard {
   stamina: number;
 }
 
+export interface ArchetypeStats {
+  skill: number;
+  stamina: number;
+  luck: number;
+}
+
 export interface GameConfig {
   keyCount: number;
   comboSize: number;
@@ -28,6 +34,8 @@ export interface GameConfig {
   combatDamage: number;
   maxMissedTurns: number;
   defaultFleeBelow: number;
+  /** Starting stats per archetype (defaults to ARCHETYPES). */
+  archetypes: Record<Archetype, ArchetypeStats>;
   roomMix: { monster: number; treasure: number; trap: number; empty: number };
 }
 

@@ -8,7 +8,8 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "sim": "npm run sim -w @firetop/engine --"
+    "sim": "npm run sim -w @firetop/engine --",
+    "dev": "npm run dev -w @firetop/client"
   },
   "engines": { "node": ">=20" }
 }

@@ -15,6 +15,8 @@ If everyone else leaves the game (3 missed turns in a row), the last player wins
   is checked to be crossable.
 
 ## Characters
+Starting stats (defaults; per-game overrides via `config.archetypes`):
+
 | Archetype | Skill | Stamina | Luck |
 |---|---|---|---|
 | Warrior | 10 | 14 | 1 |
