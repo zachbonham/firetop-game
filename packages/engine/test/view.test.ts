@@ -31,6 +31,8 @@ describe("playerView never leaks secrets", () => {
           expect(json).not.toContain(`"${p.pos}"`.startsWith('"m:') ? `"${p.pos}"` : "\u0000never");
         }
         expect(v.log.every((e) => !e.privateTo || e.privateTo === viewer.id)).toBe(true);
+        // A room named in the log is one whose contents are already public.
+        expect(v.log.every((e) => !e.room || v.rooms[e.room]?.revealed)).toBe(true);
       }
     }
   });

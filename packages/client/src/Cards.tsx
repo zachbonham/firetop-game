@@ -80,18 +80,24 @@ export function roomCard(room: string, e: AnyEncounter, opts: { cleared?: boolea
 const OUTCOME_TYPES = new Set(["combat", "treasure", "trap", "defeat", "camp", "item", "pickup"]);
 
 /**
- * Cards for what just happened to one viewer, from two of their views (before
- * and after). Works from PlayerViews only, so the online client can use it too.
+ * Cards for what the viewer's own action just did, from two of their views
+ * (before and after). Works from PlayerViews only, so the online client can use
+ * it too. `after` may already include later players' turns (the server plays
+ * bots straight after you); only events from the viewer's turn make cards, so
+ * other players' moves never pop up.
  */
 export function cardsBetween(before: PlayerView, after: PlayerView): CardData[] {
-  if (before.viewerId !== after.viewerId) return [];
-  const fresh: GameEvent[] = after.log.slice(before.log.length);
+  if (before.viewerId !== after.viewerId || before.currentPlayerId !== before.viewerId) return [];
+  // Every player turn has its own turn number, so this is exactly the viewer's turn.
+  const fresh: GameEvent[] = after.log.slice(before.log.length).filter((e) => e.turn === before.turn);
   if (fresh.length === 0) return [];
   const cards: CardData[] = [];
   const text = (types: string[]) => fresh.filter((e) => types.includes(e.type)).map((e) => e.text);
 
-  for (const [room, r] of Object.entries(after.rooms)) {
-    if (!r.revealed || before.rooms[room]?.revealed || !r.encounter) continue;
+  const rooms = [...new Set(fresh.flatMap((e) => (e.room ? [e.room] : [])))];
+  for (const room of rooms) {
+    const r = after.rooms[room];
+    if (!r?.revealed || before.rooms[room]?.revealed || !r.encounter) continue;
     const card = roomCard(room, r.encounter, { cleared: r.cleared });
     card.lines = [...(card.lines ?? []), ...fresh.filter((e) => OUTCOME_TYPES.has(e.type)).map((e) => e.text)];
     cards.push(card);
@@ -124,6 +130,21 @@ export function cardsBetween(before: PlayerView, after: PlayerView): CardData[] 
   // A fall with no other card (e.g. a trap in a known room) still deserves one.
   if (cards.length === 0 && text(["defeat"]).length) cards.push({ tone: "defeat", title: "Fallen", icon: "skull", lines: text(["trap", "defeat"]) });
   return cards;
+}
+
+/**
+ * What everyone else did since the viewer's last turn ended: the "while you
+ * were away" feed. Relies on the turn number going up by one each time play
+ * passes to the next seat, so the viewer's turns are `players.length` apart.
+ */
+export function sinceMyLastTurn(view: PlayerView): GameEvent[] {
+  const n = view.players.length;
+  const me = view.players.findIndex((p) => p.id === view.viewerId);
+  const current = view.players.findIndex((p) => p.id === view.currentPlayerId);
+  if (me < 0 || current < 0) return [];
+  const back = (current - me + n) % n;
+  const myLastTurn = back === 0 ? view.turn - n : view.turn - back;
+  return view.log.filter((e) => e.turn > myLastTurn && !(back === 0 && e.turn === view.turn));
 }
 
 export function Card({ card }: { card: CardData }) {

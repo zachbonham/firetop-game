@@ -1,6 +1,6 @@
 import { botAction, playerView } from "@firetop/engine";
 import { describe, expect, it } from "vitest";
-import { cardsBetween, roomCard } from "../src/Cards.js";
+import { cardsBetween, roomCard, sinceMyLastTurn } from "../src/Cards.js";
 import { act, startSession, type Session, type SessionSetup } from "../src/session.js";
 
 const setup: SessionSetup = {
@@ -44,6 +44,43 @@ describe("cards", () => {
       expect(text).not.toContain(`Room ${id.toUpperCase()}`);
     }
     expect(text).not.toContain("combination");
+  });
+
+  it("ignores what other players did after the viewer's action (the server plays bots straight after you)", () => {
+    // Find one of Ann's actions followed by Bo revealing a room, like an online act response.
+    let s = startSession(setup);
+    for (let i = 0; i < 3000; i++) {
+      const actor = s.state.players[s.state.currentIndex]!.id;
+      const r = act(s, actor, botAction(playerView(s.state, actor)));
+      if (!r.ok) throw new Error(r.error);
+      if (actor === "a") {
+        let later = r.session;
+        while (later.state.phase !== "finished" && later.state.players[later.state.currentIndex]!.id === "b") {
+          const b = act(later, "b", botAction(playerView(later.state, "b")));
+          if (!b.ok) throw new Error(b.error);
+          later = b.session;
+        }
+        const boRevealed = Object.keys(later.state.rooms).some((id) => later.state.rooms[id]!.revealed && !r.session.state.rooms[id]!.revealed);
+        if (boRevealed) {
+          const before = playerView(s.state, "a");
+          expect(cardsBetween(before, playerView(later.state, "a"))).toEqual(cardsBetween(before, playerView(r.session.state, "a")));
+          // ...and Bo's moves are in Ann's "since your last turn" feed instead.
+          const feed = sinceMyLastTurn(playerView(later.state, "a"));
+          expect(feed.length).toBeGreaterThan(0);
+          expect(feed.every((e) => e.turn > s.state.turn)).toBe(true);
+          expect(feed.some((e) => e.playerId === "b" && e.room)).toBe(true);
+          return;
+        }
+      }
+      s = r.session;
+    }
+    throw new Error("never happened");
+  });
+
+  it("feeds back only turns after the viewer's last one", () => {
+    const { after } = untilAnn((b, a) => a.state.turn > b.state.turn && a.state.turn > 6);
+    const v = playerView(after.state, "a"); // Bo's turn now; Ann's was the turn before
+    expect(sinceMyLastTurn(v).every((e) => e.turn === v.turn)).toBe(true);
   });
 
   it("makes no cards across different viewers or with nothing new", () => {

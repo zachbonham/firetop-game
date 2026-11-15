@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ITEM_NAMES, candidateCombos, type Action, type NodeId, type PlayerView } from "@firetop/engine";
 import { ActionPanel, attackable } from "../ActionPanel.js";
 import { Board } from "../Board.js";
-import { CardPopup, Portrait, cardsBetween, roomCard, type CardData } from "../Cards.js";
+import { CardPopup, Portrait, cardsBetween, roomCard, sinceMyLastTurn, type CardData } from "../Cards.js";
 import { describeNode, seatColor } from "../describe.js";
 import { useBoardFocus } from "../useBoardFocus.js";
 import { ApiError, api, type GameResponse } from "./api.js";
@@ -190,6 +190,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
         </div>
 
         <aside className="side">
+          {game.status === "active" && <Recent view={view} myTurn={myTurn} />}
           {myTurn ? (
             <ActionPanel
               view={view}
@@ -275,6 +276,24 @@ function Chest({ view }: { view: PlayerView }) {
         {candidates.length} combination{candidates.length === 1 ? "" : "s"} still possible
         {candidates.length <= 8 ? `: ${candidates.map((c) => c.join("-")).join(", ")}` : ""}.
       </p>
+    </section>
+  );
+}
+
+/** Other players' moves since your last turn, so they don't need a popup each. */
+function Recent({ view, myTurn }: { view: PlayerView; myTurn: boolean }) {
+  const events = sinceMyLastTurn(view);
+  if (events.length === 0) return null;
+  const shown = events.slice(-12);
+  return (
+    <section className="panel log recent">
+      <h3>{myTurn ? "Since your last turn" : "Since your turn"}</h3>
+      <ol>
+        {shown.map((e, i) => (
+          <li key={i} className={e.privateTo ? "private" : ""}><small>t{e.turn}</small> {e.text}</li>
+        ))}
+      </ol>
+      {events.length > shown.length && <p className="hint">{events.length - shown.length} earlier in the log below.</p>}
     </section>
   );
 }

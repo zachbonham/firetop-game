@@ -248,6 +248,13 @@ function applyFighter(p: Player, f: Fighter) {
 
 /** Returns false if the player left the square (fled or was defeated). */
 function roomEncounter(s: GameState, rng: Rng, p: Player, room: string, from: NodeId): boolean {
+  const start = s.log.length;
+  const stillHere = resolveRoom(s, rng, p, room, from);
+  for (const e of s.log.slice(start)) e.room = room;
+  return stillHere;
+}
+
+function resolveRoom(s: GameState, rng: Rng, p: Player, room: string, from: NodeId): boolean {
   const rs = s.rooms[room];
   if (!rs || rs.cleared) return true;
   rs.revealed = true;

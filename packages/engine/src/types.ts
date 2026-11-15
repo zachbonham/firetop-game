@@ -123,6 +123,8 @@ export interface GameEvent {
   playerId?: string;
   /** If set, only this player can see the event. */
   privateTo?: string;
+  /** The room this happened in, for events from entering a room (revealed rooms are public). */
+  room?: string;
 }
 
 /** roll -> move -> (orient, after flipping a maze tile) -> next player. */
