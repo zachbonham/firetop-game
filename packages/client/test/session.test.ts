@@ -1,6 +1,7 @@
 import { botAction, playerView } from "@firetop/engine";
 import { describe, expect, it } from "vitest";
-import { act, fromSave, startSession, toSave, undo, undoHumanTurn, type Session, type SessionSetup } from "../src/session.js";
+import { RULES_VERSION } from "@firetop/engine";
+import { act, fromSave, sessionName, startSession, toSave, undo, undoHumanTurn, type Session, type SessionSetup } from "../src/session.js";
 
 const setup: SessionSetup = {
   seed: 42,
@@ -51,6 +52,18 @@ describe("local session", () => {
     expect(back.actions.filter((x) => x.actor === "a").length).toBe(humanActs - 1);
     expect(back.actions.at(-1)?.actor ?? null).not.toBe("b");
     expect(undoHumanTurn(startSession(setup)).state).toEqual(s0.state);
+  });
+
+  it("refuses saves from other rules versions", () => {
+    const saved = toSave(startSession(setup), { commit: "abc123" });
+    expect(saved.rulesVersion).toBe(RULES_VERSION);
+    expect(() => fromSave({ ...saved, rulesVersion: RULES_VERSION + 1 })).toThrow(/abc123/);
+    const { rulesVersion: _, ...legacy } = saved;
+    if (RULES_VERSION !== 1) expect(() => fromSave(legacy)).toThrow(/rules v1/);
+  });
+
+  it("names sessions by start time and seed", () => {
+    expect(sessionName({ ...setup, startedAt: "2026-11-15T09:30:12.345Z" })).toBe("2026-11-15_09-30-12-seed42");
   });
 
   it("refuses foreign save files", () => {

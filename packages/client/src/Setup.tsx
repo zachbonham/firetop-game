@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BOARD, DEFAULT_CONFIG, type Archetype, type GameConfig } from "@firetop/engine";
+import { BOARD, DEFAULT_CONFIG, ITEM_NAMES, type Archetype, type GameConfig, type ItemId } from "@firetop/engine";
 import { fromSave, type Seat, type Session, type SessionSetup } from "./session.js";
 import { seatColor } from "./describe.js";
 import { downloadJson, readJsonFile } from "./files.js";
@@ -56,6 +56,8 @@ export function Setup({ initial, onStart, onLoad }: Props) {
   const keyRooms = cfg.roomMix.monster + cfg.roomMix.treasure;
   const problems: string[] = [];
   if (mixTotal !== BOARD.rooms.length) problems.push(`room mix must add up to ${BOARD.rooms.length} (now ${mixTotal})`);
+  const deckSize = Object.values(cfg.treasureDeck).reduce((a, b) => a + b, 0);
+  if (deckSize < cfg.roomMix.treasure) problems.push(`treasure deck needs at least ${cfg.roomMix.treasure} items (one per treasure room)`);
   if (keyRooms < cfg.keyCount) problems.push(`need at least ${cfg.keyCount} monster + treasure rooms for the keys`);
   if (cfg.comboSize > cfg.keyCount) problems.push("combination can't be bigger than the number of keys");
   if (cfg.trapDamage[0] > cfg.trapDamage[1]) problems.push("trap damage min is above max");
@@ -171,9 +173,22 @@ export function Setup({ initial, onStart, onLoad }: Props) {
             {num("Trap damage max", cfg.trapDamage[1], (v) => upd({ trapDamage: [cfg.trapDamage[0], v] }))}
           </fieldset>
           <fieldset>
+            <legend>Treasure deck (one item per treasure room)</legend>
+            {(Object.keys(ITEM_NAMES) as ItemId[]).map((item) =>
+              <span key={item}>{num(ITEM_NAMES[item], cfg.treasureDeck[item], (v) => upd({ treasureDeck: { ...cfg.treasureDeck, [item]: v } }))}</span>,
+            )}
+          </fieldset>
+          <fieldset>
+            <legend>Item effects</legend>
+            {num("Potion of Skill: +Skill", cfg.items.skillPotion, (v) => upd({ items: { ...cfg.items, skillPotion: v } }))}
+            {num("Potion of Luck: +Luck", cfg.items.luckPotion, (v) => upd({ items: { ...cfg.items, luckPotion: v } }))}
+            {num("Sword: +Skill vs monsters", cfg.items.swordSkill, (v) => upd({ items: { ...cfg.items, swordSkill: v } }))}
+            {num("Shield: damage blocked", cfg.items.shieldBlock, (v) => upd({ items: { ...cfg.items, shieldBlock: v } }))}
+            {num("Provisions heal", cfg.provisionsAmount, (v) => upd({ provisionsAmount: v }))}
+          </fieldset>
+          <fieldset>
             <legend>Turn &amp; combat</legend>
             {num("Rest heals", cfg.restAmount, (v) => upd({ restAmount: v }))}
-            {num("Provisions heal", cfg.provisionsAmount, (v) => upd({ provisionsAmount: v }))}
             {num("Combat damage", cfg.combatDamage, (v) => upd({ combatDamage: v }), 1)}
             {num("Default flee below", cfg.defaultFleeBelow, (v) => upd({ defaultFleeBelow: v }))}
             {num("Keys", cfg.keyCount, (v) => upd({ keyCount: v }), 1)}

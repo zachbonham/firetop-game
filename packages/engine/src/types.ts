@@ -6,8 +6,16 @@ export type NodeId = string;
 export type LocationId =
   | "entrance"
   | "r1" | "r2" | "r3" | "r4" | "r5" | "r6" | "r7" | "r8" | "r9" | "r10"
+  | "camp"
   | "maze"
   | "lair";
+
+/**
+ * Treasure items. Potions take effect when found; the rest are carried.
+ * provisions and scroll are used with the useItem action; sword, shield and
+ * amulet work automatically.
+ */
+export type ItemId = "provisions" | "skillPotion" | "luckPotion" | "sword" | "shield" | "amulet" | "scroll";
 
 export type TileType = "straight" | "corner" | "tee" | "cross" | "dead";
 
@@ -37,6 +45,16 @@ export interface GameConfig {
   /** Starting stats per archetype (defaults to ARCHETYPES). */
   archetypes: Record<Archetype, ArchetypeStats>;
   roomMix: { monster: number; treasure: number; trap: number; empty: number };
+  /** How many of each item go into the treasure deck; one is drawn per treasure room. */
+  treasureDeck: Record<ItemId, number>;
+  items: {
+    skillPotion: number;
+    luckPotion: number;
+    /** Extra Skill against monsters and the wizard (not players). */
+    swordSkill: number;
+    /** Damage blocked per lost combat round (a lost round still costs at least 1). */
+    shieldBlock: number;
+  };
 }
 
 export interface PlayerSettings {
@@ -62,6 +80,12 @@ export interface Player {
   protected: boolean;
   missedTurns: number;
   wizardBeaten: boolean;
+  /** Carried items (public). */
+  items: ItemId[];
+  /** Has entered the camp: defeats wake you there instead of at the entrance. */
+  campReached: boolean;
+  /** PRIVATE: rooms this player has looked into with a scroll. */
+  peeks: string[];
   /** This player's private view of the maze: "row:col" -> rotation (0-3). */
   maze: Record<string, number>;
   settings: PlayerSettings;
@@ -69,8 +93,7 @@ export interface Player {
 
 export type Encounter =
   | { kind: "monster"; name: string; skill: number; stamina: number; loot: number | null }
-  | { kind: "treasure"; item: "key"; key: number }
-  | { kind: "treasure"; item: "provisions" | "skill" }
+  | { kind: "treasure"; item: ItemId; key: number | null }
   | { kind: "trap"; damage: number }
   | { kind: "empty" };
 
@@ -142,6 +165,8 @@ export type Action =
   /** Re-turn a maze tile you revealed: the one you stand on or one next to it. Costs your turn. */
   | { type: "rotateTile"; row: number; col: number; rotation: number }
   | { type: "setSettings"; settings: Partial<PlayerSettings> }
+  /** Use a carried item (provisions, or a scroll on a room). Free: does not end your turn. */
+  | { type: "useItem"; item: ItemId; room?: string }
   | { type: "timeout" };
 
 /** Who sends an action: a player id, or the server for timeouts. */

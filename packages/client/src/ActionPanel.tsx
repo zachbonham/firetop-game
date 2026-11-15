@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  ENTRY_ROW, LAIR, MAZE_SQUARE, candidateCombos, isMazeTile, openings,
+  ENTRY_ROW, ITEM_NAMES, LAIR, MAZE_SQUARE, candidateCombos, isMazeTile, openings,
   type Action, type NodeId, type PlayerView, type PublicPlayer,
 } from "@firetop/engine";
 import { TileIcon } from "./Board.js";
@@ -132,7 +132,38 @@ export function ActionPanel(p: Props) {
           )}
         </>
       )}
+      <ItemActions view={view} onAction={p.onAction} />
       <BotButton {...p} />
+    </div>
+  );
+}
+
+/** Free actions with carried items (they don't use up the turn). */
+function ItemActions({ view, onAction }: { view: PlayerView; onAction: (a: Action) => void }) {
+  const me = view.players.find((x) => x.id === view.viewerId)!;
+  const peeks = view.me!.peeks;
+  const unknownRooms = Object.entries(view.rooms).filter(([id, r]) => !r.revealed && !peeks[id]).map(([id]) => id);
+  const [room, setRoom] = useState<string>("");
+  const scrollRoom = unknownRooms.includes(room) ? room : unknownRooms[0] ?? "";
+  if (!me.items.includes("provisions") && !me.items.includes("scroll")) return null;
+  return (
+    <div className="choice">
+      <p>Items (free, your turn continues):</p>
+      <div className="row">
+        {me.items.includes("provisions") && (
+          <button onClick={() => onAction({ type: "useItem", item: "provisions" })} disabled={me.stamina >= me.maxStamina}>
+            🍖 Eat {ITEM_NAMES.provisions} (+{view.config.provisionsAmount})
+          </button>
+        )}
+        {me.items.includes("scroll") && unknownRooms.length > 0 && (
+          <>
+            <button onClick={() => onAction({ type: "useItem", item: "scroll", room: scrollRoom })}>📜 Read scroll on</button>
+            <select value={scrollRoom} onChange={(e) => setRoom(e.target.value)}>
+              {unknownRooms.map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+            </select>
+          </>
+        )}
+      </div>
     </div>
   );
 }

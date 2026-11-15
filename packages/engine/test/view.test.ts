@@ -18,6 +18,11 @@ describe("playerView never leaks secrets", () => {
         expect(json).not.toContain('"rng"');
         expect(json).not.toContain('"seed"');
         expect(json).not.toContain('"loot"');
+        expect(json).not.toContain('"peeks":["');
+        for (const p of s.players) {
+          if (p.id === viewer.id) continue;
+          for (const room of p.peeks) if (!viewer.peeks.includes(room) && !s.rooms[room]!.revealed) expect(v.me!.peeks[room]).toBeUndefined();
+        }
         for (const [id, room] of Object.entries(s.rooms)) {
           if (!room.revealed) expect(v.rooms[id]!.encounter).toBeUndefined();
         }

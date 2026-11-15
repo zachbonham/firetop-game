@@ -1,5 +1,14 @@
 import type { Archetype, ArchetypeStats, GameConfig, MonsterCard, TileType } from "./types.js";
 
+/**
+ * Bump whenever a change makes an old action log replay differently (rules,
+ * setup randomization, board). Saved games record it and refuse to load under
+ * another version.
+ *   1: M1/M2 rules.
+ *   2: no empty rooms, keys separate from treasure items, carried items, camp.
+ */
+export const RULES_VERSION: number = 2;
+
 /** Placeholder stats; tune with `npm run sim`. */
 export const ARCHETYPES: Record<Archetype, ArchetypeStats> = {
   warrior: { skill: 10, stamina: 14, luck: 1 },
@@ -39,6 +48,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   maxMissedTurns: 3,
   defaultFleeBelow: 4,
   archetypes: ARCHETYPES,
-  /** Room encounter mix for the 10 rooms. Keys go to monster/treasure rooms only. */
-  roomMix: { monster: 5, treasure: 3, trap: 1, empty: 1 },
+  /** Room encounter mix for the 10 rooms. Keys go to monster/treasure rooms only (with or as well as an item). */
+  roomMix: { monster: 5, treasure: 4, trap: 1, empty: 0 },
+  treasureDeck: { provisions: 2, skillPotion: 1, luckPotion: 1, sword: 1, shield: 1, amulet: 1, scroll: 1 },
+  items: { skillPotion: 1, luckPotion: 2, swordSkill: 1, shieldBlock: 1 },
 };

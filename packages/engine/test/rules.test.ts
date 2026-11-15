@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { E, N, S, W, applyAction, openings, playerView, reachable, type GameState } from "../src/index.js";
-import { act, newGame, patch } from "./helpers.js";
+import { act, newGame, patch, removeKey } from "./helpers.js";
 
 const inMove = (s: GameState, roll: number) => patch(s, (x) => { x.phase = "move"; x.pendingRoll = roll; });
 
@@ -71,17 +71,16 @@ describe("encounters", () => {
     return act(s, "p1", { type: "move", to: "r1.0" });
   };
 
-  it("treasure keys go to the finder and clear the room", () => {
-    const s = enterRoom({ kind: "treasure", item: "key", key: 4 }, (x) => {
-      // keep invariants simple: move key 4 out of wherever setup put it
-      for (const r of Object.values(x.rooms)) {
-        const e = r.encounter;
-        if (e.kind === "monster" && e.loot === 4) e.loot = null;
-        if (e.kind === "treasure" && e.item === "key" && e.key === 4) r.encounter = { kind: "empty" };
-      }
-    });
+  it("treasure keys and items go to the finder and clear the room", () => {
+    const s = enterRoom({ kind: "treasure", item: "shield", key: 4 }, (x) => removeKey(x, 4));
     expect(s.players[0]!.keys).toContain(4);
+    expect(s.players[0]!.items).toEqual(["shield"]);
     expect(s.rooms.r1!.cleared).toBe(true);
+  });
+  it("potions take effect when found", () => {
+    const s = enterRoom({ kind: "treasure", item: "luckPotion", key: null });
+    expect(s.players[0]!.luck).toBe(1 + 2);
+    expect(s.players[0]!.items).toEqual([]);
   });
   it("traps cost Stamina", () => {
     const s = enterRoom({ kind: "trap", damage: 3 });
@@ -99,11 +98,7 @@ describe("encounters", () => {
     const s = enterRoom({ kind: "monster", name: "Dragon", skill: 30, stamina: 50, loot: null }, (x) => {
       x.players[0]!.settings.fleeBelow = 0;
       x.players[0]!.settings.autoLuck = false;
-      for (const r of Object.values(x.rooms)) {
-        const e = r.encounter;
-        if (e.kind === "monster" && e.loot === 2) e.loot = null;
-        if (e.kind === "treasure" && e.item === "key" && e.key === 2) r.encounter = { kind: "empty" };
-      }
+      removeKey(x, 2);
       x.players[0]!.keys = [2];
     });
     const p = s.players[0]!;
@@ -214,11 +209,7 @@ describe("player vs player", () => {
       x.players[0]!.skill = 40;
       x.players[1]!.keys = [5];
       x.players[1]!.settings.fleeBelow = 0;
-      for (const r of Object.values(x.rooms)) {
-        const e = r.encounter;
-        if (e.kind === "monster" && e.loot === 5) e.loot = null;
-        if (e.kind === "treasure" && e.item === "key" && e.key === 5) r.encounter = { kind: "empty" };
-      }
+      removeKey(x, 5);
     });
 
   it("the winner takes one key and the loser is protected", () => {
@@ -262,5 +253,88 @@ describe("timer", () => {
   });
   it("only the server can send a timeout", () => {
     expect(applyAction(newGame(), "p1", { type: "timeout" }).ok).toBe(false);
+  });
+});
+
+describe("items", () => {
+  const holding = (items: GameState["players"][number]["items"], tweak?: (s: GameState) => void) =>
+    patch(newGame(), (x) => {
+      x.players[0]!.items = [...items];
+      tweak?.(x);
+    });
+
+  it("provisions are a free action: they heal and the turn goes on", () => {
+    const s = act(holding(["provisions"], (x) => { x.players[0]!.stamina = 5; }), "p1", { type: "useItem", item: "provisions" });
+    expect(s.players[0]!.stamina).toBe(9);
+    expect(s.players[0]!.items).toEqual([]);
+    expect(s.currentIndex).toBe(0);
+    expect(s.phase).toBe("roll");
+  });
+  it("items can't be used after rolling, twice, or if they work automatically", () => {
+    const s = holding(["provisions", "sword"], (x) => { x.players[0]!.stamina = 5; });
+    expect(applyAction(inMove(s, 3), "p1", { type: "useItem", item: "provisions" }).ok).toBe(false);
+    expect(applyAction(s, "p1", { type: "useItem", item: "sword" }).ok).toBe(false);
+    expect(applyAction(s, "p1", { type: "useItem", item: "scroll" }).ok).toBe(false);
+    expect(applyAction(holding(["provisions"]), "p1", { type: "useItem", item: "provisions" }).ok).toBe(false);
+  });
+  it("a scroll shows one room's contents to the reader only", () => {
+    const s = act(holding(["scroll"]), "p1", { type: "useItem", item: "scroll", room: "r5" });
+    expect(s.rooms.r5!.revealed).toBe(false);
+    expect(playerView(s, "p1").me!.peeks.r5).toBeDefined();
+    expect(playerView(s, "p2").me!.peeks.r5).toBeUndefined();
+    expect(JSON.stringify(playerView(s, "p2"))).not.toContain("The scroll shows");
+    expect(applyAction(patch(s, (x) => { x.players[0]!.items = ["scroll"]; }), "p1", { type: "useItem", item: "scroll", room: "r5" }).ok).toBe(false);
+  });
+  it("the sword helps against monsters", () => {
+    // Skill 10 + sword 1 vs an equal Skill-11 monster across many seeds: the sword should win more often.
+    const wins = (items: GameState["players"][number]["items"]) => {
+      let n = 0;
+      for (let seed = 1; seed <= 60; seed++) {
+        let s = patch(newGame(seed), (x) => {
+          x.players[0]!.items = [...items];
+          x.players[0]!.settings.fleeBelow = 0;
+          x.players[0]!.settings.autoLuck = false;
+          x.rooms.r1!.encounter = { kind: "monster", name: "Duelist", skill: 11, stamina: 14, loot: null };
+          x.players[0]!.pos = "p:entrance-r1.1";
+        });
+        s = act(inMove(s, 1), "p1", { type: "move", to: "r1.0" });
+        if (s.rooms.r1!.cleared) n++;
+      }
+      return n;
+    };
+    expect(wins(["sword"])).toBeGreaterThan(wins([]));
+  });
+  it("the amulet keeps your keys once", () => {
+    const s = patch(newGame(), (x) => {
+      removeKey(x, 3);
+      x.players[0]!.keys = [3];
+      x.players[0]!.items = ["amulet"];
+      x.players[0]!.settings.fleeBelow = 0;
+      x.players[0]!.settings.autoLuck = false;
+      x.rooms.r1!.encounter = { kind: "monster", name: "Dragon", skill: 30, stamina: 50, loot: null };
+      x.players[0]!.pos = "p:entrance-r1.1";
+    });
+    const after = act(inMove(s, 1), "p1", { type: "move", to: "r1.0" });
+    expect(after.players[0]!.keys).toEqual([3]);
+    expect(after.players[0]!.items).toEqual([]);
+    expect(after.dropped).toEqual({});
+  });
+});
+
+describe("camp", () => {
+  it("entering the camp marks it, and later defeats wake you there", () => {
+    let s = patch(newGame(), (x) => { x.players[0]!.pos = "p:r4-camp.0"; });
+    s = act(inMove(s, 1), "p1", { type: "move", to: "camp" });
+    expect(s.players[0]!.campReached).toBe(true);
+    s = patch(s, (x) => {
+      x.currentIndex = 0;
+      x.players[0]!.settings.fleeBelow = 0;
+      x.players[0]!.settings.autoLuck = false;
+      x.rooms.r6!.encounter = { kind: "monster", name: "Dragon", skill: 30, stamina: 50, loot: null };
+      x.players[0]!.pos = "p:camp-r6.0";
+    });
+    s = act(inMove(s, 1), "p1", { type: "move", to: "r6.0" });
+    expect(s.players[0]!.pos).toBe("camp");
+    expect(s.players[0]!.skipNextTurn).toBe(true);
   });
 });

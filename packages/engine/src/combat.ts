@@ -7,6 +7,8 @@ export interface Fighter {
   /** Flee once Stamina drops below this; 0 or null never flees. */
   fleeBelow: number | null;
   autoLuck: boolean;
+  /** Damage blocked per lost round (shield); a lost round always costs at least 1. */
+  block?: number;
 }
 
 export interface CombatResult {
@@ -24,7 +26,7 @@ const MAX_ROUNDS = 200;
 /**
  * Resolve a whole fight in one call (async-friendly: no back-and-forth).
  * Each round both sides roll 2d6 + Skill; the lower roll loses `damage`
- * Stamina; ties do nothing. A side that is losing a round may spend a Luck
+ * Stamina (less any block, minimum 1); ties do nothing. A side that is losing a round may spend a Luck
  * token to reroll once if autoLuck is on.
  */
 export function resolveCombat(a0: Fighter, b0: Fighter, rng: Rng, damage: number): CombatResult {
@@ -48,8 +50,9 @@ export function resolveCombat(a0: Fighter, b0: Fighter, rng: Rng, damage: number
       luckSpent.b++;
       rb = rng.twoD6() + b.skill;
     }
-    if (ra > rb) b.stamina = Math.max(0, b.stamina - damage);
-    else if (rb > ra) a.stamina = Math.max(0, a.stamina - damage);
+    const hit = (f: Fighter) => Math.max(1, damage - (f.block ?? 0));
+    if (ra > rb) b.stamina = Math.max(0, b.stamina - hit(b));
+    else if (rb > ra) a.stamina = Math.max(0, a.stamina - hit(a));
 
     if (b.stamina <= 0) return { winner: "a", fled: null, a, b, rounds: round, luckSpent };
     if (a.stamina <= 0) return { winner: "b", fled: null, a, b, rounds: round, luckSpent };

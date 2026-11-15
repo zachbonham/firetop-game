@@ -1,9 +1,12 @@
 import type { LocationId, NodeId } from "./types.js";
 
 /**
- * The fixed board: 13 locations joined by paths of squares.
+ * The fixed board: 14 locations joined by paths of squares.
  *
  *   entrance -> rooms r1..r10 (optional) -> maze (4x4 tile grid) -> lair
+ *
+ * The camp sits on r4's routes to r6 and r7. It has no encounter; once a
+ * player has entered it, defeats wake them there instead of at the entrance.
  *
  * Paths attach to the "near" end of a room (square 0) when coming from the
  * entrance side, and leave from the "far" end, so crossing a room means
@@ -39,8 +42,9 @@ export const CONNECTIONS: ReadonlyArray<readonly [LocationId, LocationId, number
   ["r2", "r4", 2],
   ["r2", "r5", 3],
   ["r3", "r6", 3],
-  ["r4", "r6", 2],
-  ["r4", "r7", 3],
+  ["r4", "camp", 1],
+  ["camp", "r6", 1],
+  ["camp", "r7", 1],
   ["r5", "r7", 2],
   ["r5", "r8", 3],
   ["r6", "r9", 2],
@@ -52,6 +56,7 @@ export const CONNECTIONS: ReadonlyArray<readonly [LocationId, LocationId, number
 ];
 
 export const ENTRANCE: NodeId = "entrance";
+export const CAMP: NodeId = "camp";
 export const MAZE_SQUARE: NodeId = "maze";
 export const LAIR: NodeId = "lair";
 
@@ -59,13 +64,18 @@ function roomSquares(room: (typeof ROOM_IDS)[number]): NodeId[] {
   return Array.from({ length: ROOM_SIZES[room] }, (_, i) => `${room}.${i}`);
 }
 
+/** Single-square locations (everything except the rooms). */
+function isPoint(loc: LocationId): boolean {
+  return loc === "entrance" || loc === "camp" || loc === "maze" || loc === "lair";
+}
+
 function nearEnd(loc: LocationId): NodeId {
-  if (loc === "entrance" || loc === "maze" || loc === "lair") return loc;
+  if (isPoint(loc)) return loc;
   return `${loc}.0`;
 }
 
 function farEnd(loc: LocationId): NodeId {
-  if (loc === "entrance" || loc === "maze" || loc === "lair") return loc;
+  if (isPoint(loc)) return loc;
   return `${loc}.${ROOM_SIZES[loc as (typeof ROOM_IDS)[number]] - 1}`;
 }
 
@@ -80,6 +90,7 @@ function buildBoard(): Board {
   };
 
   add(ENTRANCE, "entrance");
+  add(CAMP, "camp");
   add(MAZE_SQUARE, "maze");
   add(LAIR, "lair");
   for (const room of ROOM_IDS) {

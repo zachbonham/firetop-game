@@ -1,9 +1,10 @@
-import { ENTRANCE, LAIR, MAZE_SQUARE, isMazeTile, locationOf } from "./board.js";
+import { BOARD, CAMP, ENTRANCE, LAIR, MAZE_SQUARE, isMazeTile, locationOf } from "./board.js";
 import { resolveCombat, type Fighter } from "./combat.js";
 import { ENTRY_ROW, openings, parseTile, tileAt, tileKey } from "./maze.js";
+import { ITEM_NAMES, USABLE_ITEMS, describeEncounter } from "./items.js";
 import { reachable } from "./movement.js";
 import { Rng } from "./rng.js";
-import type { Action, ActionResult, Actor, GameState, NodeId, Player } from "./types.js";
+import type { Action, ActionResult, Actor, GameState, ItemId, NodeId, Player } from "./types.js";
 
 /**
  * The engine's single entry point: (state, actor, action) -> new state.
@@ -116,8 +117,32 @@ function dispatch(s: GameState, rng: Rng, actor: Actor, a: Action): string | nul
     }
     case "guessChest":
       return guessChest(s, p, a.keys);
+    case "useItem":
+      return useItem(s, p, a.item, a.room);
   }
   return "unknown action";
+}
+
+/** A free action at the start of your turn: does not end it. */
+function useItem(s: GameState, p: Player, item: ItemId, room?: string): string | null {
+  if (s.phase !== "roll") return "you can only use items before rolling";
+  if (!p.items.includes(item)) return "you don't have that item";
+  if (!USABLE_ITEMS.includes(item)) return `the ${ITEM_NAMES[item]} works automatically`;
+  if (item === "provisions") {
+    if (p.stamina >= p.maxStamina) return "you are already at full Stamina";
+    const before = p.stamina;
+    p.stamina = Math.min(p.maxStamina, p.stamina + s.config.provisionsAmount);
+    log(s, "item", `${p.name} ate provisions (+${p.stamina - before} Stamina).`, p.id);
+  } else {
+    const rs = room !== undefined ? s.rooms[room] : undefined;
+    if (!rs || room === undefined) return "choose a room to look into";
+    if (rs.revealed || p.peeks.includes(room)) return "you already know what is in that room";
+    p.peeks.push(room);
+    log(s, "item", `${p.name} read a scroll.`, p.id);
+    log(s, "peek", `The scroll shows ${room.toUpperCase()} holds ${describeEncounter(rs.encounter)}.`, p.id, p.id);
+  }
+  p.items.splice(p.items.indexOf(item), 1);
+  return null;
 }
 
 function canTurnTile(p: Player, row: number, col: number): boolean {
@@ -169,6 +194,10 @@ function move(
   log(s, "move", `${p.name} moved ${reach.dist} square${reach.dist === 1 ? "" : "s"}.`, p.id);
 
   let stillHere = true;
+  if (enteredNewLocation && loc === "camp" && !p.campReached) {
+    p.campReached = true;
+    log(s, "camp", `${p.name} reached the camp: defeats now wake them here.`, p.id);
+  }
   if (enteredNewLocation && loc && loc.startsWith("r")) {
     stillHere = roomEncounter(s, rng, p, loc, reach.parent);
   } else if (a.to === LAIR && !p.wizardBeaten) {
@@ -188,13 +217,16 @@ function move(
   return null;
 }
 
-function fighterOf(p: Player): Fighter {
+/** Combat stats for a player. The sword only helps against monsters and the wizard. */
+function fighterOf(s: GameState, p: Player, vsMonster: boolean): Fighter {
+  const sword = vsMonster && p.items.includes("sword") ? s.config.items.swordSkill : 0;
   return {
-    skill: p.skill,
+    skill: p.skill + sword,
     stamina: p.stamina,
     luck: p.luck,
     fleeBelow: p.settings.fleeBelow,
     autoLuck: p.settings.autoLuck,
+    block: p.items.includes("shield") ? s.config.items.shieldBlock : 0,
   };
 }
 
@@ -227,22 +259,26 @@ function roomEncounter(s: GameState, rng: Rng, p: Player, room: string, from: No
   }
   if (enc.kind === "treasure") {
     rs.cleared = true;
-    if (enc.item === "key") {
+    if (enc.key !== null) {
       p.keys.push(enc.key);
       log(s, "treasure", `${p.name} found key ${enc.key}.`, p.id);
-    } else if (enc.item === "provisions") {
-      p.stamina = Math.min(p.maxStamina, p.stamina + s.config.provisionsAmount);
-      log(s, "treasure", `${p.name} found provisions.`, p.id);
+    }
+    if (enc.item === "skillPotion") {
+      p.skill += s.config.items.skillPotion;
+      log(s, "treasure", `${p.name} drank a Potion of Skill (+${s.config.items.skillPotion} Skill).`, p.id);
+    } else if (enc.item === "luckPotion") {
+      p.luck += s.config.items.luckPotion;
+      log(s, "treasure", `${p.name} drank a Potion of Luck (+${s.config.items.luckPotion} Luck).`, p.id);
     } else {
-      p.skill += 1;
-      log(s, "treasure", `${p.name} found a potion of Skill (+1 Skill).`, p.id);
+      p.items.push(enc.item);
+      log(s, "treasure", `${p.name} found the ${ITEM_NAMES[enc.item]}.`, p.id);
     }
     return true;
   }
 
   // Monster
   const monster: Fighter = { skill: enc.skill, stamina: enc.stamina, luck: 0, fleeBelow: null, autoLuck: false };
-  const res = resolveCombat(fighterOf(p), monster, rng, s.config.combatDamage);
+  const res = resolveCombat(fighterOf(s, p, true), monster, rng, s.config.combatDamage);
   applyFighter(p, res.a);
   enc.stamina = res.b.stamina;
   if (res.winner === "a") {
@@ -265,7 +301,7 @@ function roomEncounter(s: GameState, rng: Rng, p: Player, room: string, from: No
 function wizardDuel(s: GameState, rng: Rng, p: Player): boolean {
   const w = s.config.wizard;
   const res = resolveCombat(
-    fighterOf(p),
+    fighterOf(s, p, true),
     { skill: w.skill, stamina: w.stamina, luck: 0, fleeBelow: null, autoLuck: false },
     rng,
     s.config.combatDamage,
@@ -287,7 +323,7 @@ function wizardDuel(s: GameState, rng: Rng, p: Player): boolean {
 }
 
 function playerFight(s: GameState, rng: Rng, attacker: Player, defender: Player, stealKey?: number) {
-  const res = resolveCombat(fighterOf(attacker), fighterOf(defender), rng, s.config.combatDamage);
+  const res = resolveCombat(fighterOf(s, attacker, false), fighterOf(s, defender, false), rng, s.config.combatDamage);
   applyFighter(attacker, res.a);
   applyFighter(defender, res.b);
   const [winner, loser] = res.winner === "a" ? [attacker, defender] : [defender, attacker];
@@ -347,12 +383,19 @@ function dropKeys(s: GameState, p: Player) {
 }
 
 function defeat(s: GameState, p: Player) {
-  dropKeys(s, p);
-  p.pos = ENTRANCE;
+  const amulet = p.items.indexOf("amulet");
+  if (amulet >= 0 && p.keys.length > 0) {
+    p.items.splice(amulet, 1);
+    log(s, "item", `${p.name}'s Amulet of Return crumbles; they keep their keys.`, p.id);
+  } else {
+    dropKeys(s, p);
+  }
+  const wake = p.campReached && BOARD.squares[CAMP] ? CAMP : ENTRANCE;
+  p.pos = wake;
   p.stamina = Math.ceil(p.maxStamina / 2);
   p.skipNextTurn = true;
   p.wizardBeaten = false;
-  log(s, "defeat", `${p.name} fell and wakes at the Entrance.`, p.id);
+  log(s, "defeat", `${p.name} fell and wakes at the ${wake === CAMP ? "camp" : "Entrance"}.`, p.id);
 }
 
 function timeout(s: GameState): string | null {

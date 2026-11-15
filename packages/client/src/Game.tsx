@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  botAction, candidateCombos, playerView,
+  ITEM_NAMES, botAction, candidateCombos, playerView,
   type Action, type Actor, type GameState, type NodeId, type PlayerView,
 } from "@firetop/engine";
 import { ActionPanel, attackable } from "./ActionPanel.js";
 import { Board } from "./Board.js";
 import { describeNode, encounterLabel, seatColor } from "./describe.js";
+import { saveData, type AutosaveStatus } from "./autosave.js";
 import { downloadJson } from "./files.js";
-import { act, stats, toSave, undo, undoHumanTurn, type Session } from "./session.js";
+import { act, sessionName, stats, undo, undoHumanTurn, type Session } from "./session.js";
 
 type Speed = "paused" | "slow" | "normal" | "fast" | "instant";
 const DELAY: Record<Exclude<Speed, "paused" | "instant">, number> = { slow: 900, normal: 350, fast: 40 };
@@ -16,10 +17,11 @@ const MAX_INSTANT = 5000;
 interface Props {
   session: Session;
   setSession: (s: Session) => void;
+  saveStatus: AutosaveStatus;
   onNewGame: () => void;
 }
 
-export function Game({ session, setSession, onNewGame }: Props) {
+export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
   const state = session.state;
   const seats = session.setup.seats;
   const isBot = (id: string) => seats.find((s) => s.id === id)?.bot ?? false;
@@ -137,7 +139,7 @@ export function Game({ session, setSession, onNewGame }: Props) {
           Undo to human
         </button>
         <button onClick={() => apply("system", { type: "timeout" })} disabled={finished} title="Simulate the server timing out this turn">⏱ Timeout</button>
-        <button onClick={() => downloadJson(`firetop-${session.setup.seed}-t${state.turn}.json`, toSave(session))}>Save</button>
+        <button onClick={() => downloadJson(`firetop-${sessionName(session.setup)}-t${state.turn}.json`, saveData(session))} title="Download a copy (games are also autosaved)">Save</button>
         <button onClick={onNewGame}>New game</button>
       </header>
 
@@ -167,6 +169,9 @@ export function Game({ session, setSession, onNewGame }: Props) {
           <p className="hint">
             Viewing as <b>{god ? `god (maze shown for ${current.name})` : covered ? "nobody" : state.players.find((p) => p.id === viewerId)?.name ?? "spectator"}</b>.
             Hover squares for ids.
+            {saveStatus && (saveStatus.ok
+              ? <> Autosaved to <code>{saveStatus.path}</code>.</>
+              : <span className="error"> Autosave failed: {saveStatus.error}</span>)}
           </p>
         </div>
 
@@ -221,7 +226,11 @@ function Players({ state, view, god, isBot, onSettings }: {
             <div className="stats-line">
               Keys {p.keys.length ? [...p.keys].sort((a, b) => a - b).map((k) => `🔑${k}`).join(" ") : "none"} · {describeNode(pos)}
             </div>
+            <div className="stats-line">
+              Items {p.items.length ? p.items.map((i) => ITEM_NAMES[i]).join(", ") : "none"}
+            </div>
             <div className="flags">
+              {p.campReached && <span>wakes at camp</span>}
               {p.wizardBeaten && <span>wizard beaten</span>}
               {p.protected && <span>protected</span>}
               {p.skipNextTurn && <span>skips next turn</span>}
@@ -273,7 +282,7 @@ function Secrets({ state }: { state: GameState }) {
       <ul className="rooms">
         {Object.entries(state.rooms).map(([id, r]) => (
           <li key={id} className={r.cleared ? "cleared" : ""}>
-            {id.toUpperCase()}: {encounterLabel(r.encounter, true)} {r.cleared ? "(cleared)" : r.revealed ? "(revealed)" : ""}
+            {id.toUpperCase()}: {encounterLabel(r.encounter)} {r.cleared ? "(cleared)" : r.revealed ? "(revealed)" : ""}
           </li>
         ))}
       </ul>

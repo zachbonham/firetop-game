@@ -25,6 +25,7 @@ const GRID: Record<Exclude<LocationId, "lair">, [number, number]> = {
   r2: [1, 3.5],
   r3: [2, 0.5],
   r4: [2, 2.5],
+  camp: [2.55, 2.1],
   r5: [2, 4.5],
   r6: [3, 1.5],
   r7: [3, 3],
@@ -58,6 +59,7 @@ export const HEIGHT = MARGIN * 2 + 4.8 * ROW + 20;
 function buildPositions(): Map<NodeId, Point> {
   const pos = new Map<NodeId, Point>();
   pos.set("entrance", center("entrance"));
+  pos.set("camp", center("camp"));
   pos.set("maze", mazeCenter);
   pos.set("lair", LAIR_POS);
   for (const room of ROOM_IDS) {

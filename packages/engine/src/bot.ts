@@ -55,6 +55,13 @@ export function botAction(view: PlayerView): Action {
   const candidates = candidateCombos(cfg.keyCount, cfg.comboSize, view.guesses);
   const usable = candidates.filter((combo) => combo.every((k) => me.keys.includes(k)));
   const neededKeys = new Set(candidates.flat().filter((k) => !me.keys.includes(k)));
+  // Once rooms and dropped keys are gone, the only keys left are other players':
+  // fight for them even at poor odds (two cautious bots would otherwise circle forever).
+  const roomsLeft = Object.values(view.rooms).some((r) => !r.cleared) || Object.keys(view.dropped).length > 0;
+  const desperate = !roomsLeft && usable.length === 0;
+  const healthy = me.stamina >= Math.ceil(me.maxStamina * 0.75);
+  const willFight = (p: PlayerView["players"][number]) =>
+    me.stamina + 2 * me.skill >= p.stamina + 2 * p.skill + 2 || (desperate && healthy);
 
   if (view.phase === "orient") {
     const f = mine.pendingFlip!;
@@ -79,6 +86,10 @@ export function botAction(view: PlayerView): Action {
   }
 
   if (view.phase === "roll") {
+    // Eating is free (doesn't use the turn), so do it whenever it won't be wasted.
+    if (me.items.includes("provisions") && me.stamina + cfg.provisionsAmount <= me.maxStamina && me.stamina < 10) {
+      return { type: "useItem", item: "provisions" };
+    }
     if (me.pos === LAIR) {
       if (me.wizardBeaten && usable.length > 0 && me.stamina > cfg.wrongGuessDamage) {
         return { type: "guessChest", keys: usable[0]! };
@@ -89,7 +100,7 @@ export function botAction(view: PlayerView): Action {
     if (me.stamina >= 8 && !isMazeTile(mine.pos)) {
       const victim = view.players.find(
         (p) => p.id !== me.id && p.status === "active" && !p.protected && !p.inMaze && p.pos === mine.pos && p.keys.length > 0
-          && me.stamina + 2 * me.skill >= p.stamina + 2 * p.skill + 2,
+          && willFight(p),
       );
       if (victim && (victim.keys.some((k) => neededKeys.has(k)) || me.keys.length < cfg.comboSize)) {
         return { type: "attack", target: victim.id, stealKey: victim.keys.find((k) => neededKeys.has(k)) ?? victim.keys[0]! };
@@ -97,8 +108,7 @@ export function botAction(view: PlayerView): Action {
     }
     if (me.stamina < 6) return { type: "rest" };
     // Only key source left is other players: heal up to fight.
-    const roomsLeft = Object.values(view.rooms).some((r) => !r.cleared) || Object.keys(view.dropped).length > 0;
-    if (!roomsLeft && !goMazeNow(usable) && me.stamina < 10) return { type: "rest" };
+    if (desperate && !healthy) return { type: "rest" };
     // Heal up before the duel.
     if ((isMazeTile(mine.pos) || mine.pos === MAZE_SQUARE) && goMazeNow(usable) && me.stamina < Math.ceil(me.maxStamina * 0.75)) {
       return { type: "rest" };
@@ -120,7 +130,7 @@ export function botAction(view: PlayerView): Action {
     for (const o of options) {
       const victim = view.players.find(
         (p) => p.id !== me.id && p.status === "active" && !p.protected && p.pos === o.to && p.keys.length > 0 && !p.inMaze
-          && me.stamina + 2 * me.skill >= p.stamina + 2 * p.skill + 2,
+          && willFight(p),
       );
       if (victim && (victim.keys.some((k) => neededKeys.has(k)) || me.keys.length < cfg.comboSize)) {
         const stealKey = victim.keys.find((k) => neededKeys.has(k)) ?? victim.keys[0]!;

@@ -2,7 +2,7 @@ import { DEFAULT_CONFIG, MONSTERS } from "./config.js";
 import { BOARD, ENTRANCE } from "./board.js";
 import { dealMaze } from "./maze.js";
 import { Rng } from "./rng.js";
-import type { Archetype, Encounter, GameConfig, GameState, Player, RoomState } from "./types.js";
+import type { Archetype, Encounter, GameConfig, GameState, ItemId, Player, RoomState } from "./types.js";
 
 export interface NewPlayer {
   id: string;
@@ -20,7 +20,8 @@ type RoomKind = "monster" | "treasure" | "trap" | "empty";
 
 /**
  * Create a game: randomize the chest combination, each room's encounter, where
- * the 7 keys are hidden, and the maze deal. Everything is driven by `seed`.
+ * the 7 keys are hidden, the treasure items, and the maze deal. Everything is
+ * driven by `seed`.
  */
 export function createGame(opts: NewGameOptions): GameState {
   if (opts.players.length < 2 || opts.players.length > 4) throw new Error("2-4 players required");
@@ -49,6 +50,13 @@ export function createGame(opts: NewGameOptions): GameState {
   const keyByRoom = new Map<string, number>();
   rng.shuffle(keys).forEach((k, i) => keyByRoom.set(keyRoomOrder[i]!, k));
 
+  const deck: ItemId[] = [];
+  for (const [item, count] of Object.entries(config.treasureDeck) as [ItemId, number][]) {
+    for (let i = 0; i < count; i++) deck.push(item);
+  }
+  if (deck.length < mix.treasure) throw new Error("treasure deck has fewer items than treasure rooms");
+  const items = rng.shuffle(deck);
+
   const monsters = rng.shuffle(MONSTERS);
   const rooms: Record<string, RoomState> = {};
   BOARD.rooms.forEach((room, i) => {
@@ -59,9 +67,7 @@ export function createGame(opts: NewGameOptions): GameState {
       const m = monsters.pop()!;
       encounter = { kind: "monster", name: m.name, skill: m.skill, stamina: m.stamina, loot: key };
     } else if (kind === "treasure") {
-      encounter = key !== null
-        ? { kind: "treasure", item: "key", key }
-        : { kind: "treasure", item: rng.pick(["provisions", "skill"] as const) };
+      encounter = { kind: "treasure", item: items.pop()!, key };
     } else if (kind === "trap") {
       const [lo, hi] = config.trapDamage;
       encounter = { kind: "trap", damage: lo + rng.int(hi - lo + 1) };
@@ -90,6 +96,9 @@ export function createGame(opts: NewGameOptions): GameState {
       protected: false,
       missedTurns: 0,
       wizardBeaten: false,
+      items: [],
+      campReached: false,
+      peeks: [],
       maze: {},
       settings: { fleeBelow: config.defaultFleeBelow, autoLuck: true },
     };
