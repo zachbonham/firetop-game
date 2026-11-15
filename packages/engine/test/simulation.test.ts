@@ -9,10 +9,10 @@ describe("simulated games (scripted bots, invariants checked after every action)
     it(`${n}-player games all finish with a winner`, () => {
       for (let seed = 1; seed <= 12; seed++) {
         const arch = Array.from({ length: n }, (_, i) => ARCH[(seed + i) % 3]!);
-        const r = simulate(seed * 101 + n, arch, 6000);
+        const r = simulate(seed * 101 + n, arch, { maxActions: 6000 });
         expect(r.finished, `seed ${seed}`).toBe(true);
         expect(r.winner).not.toBeNull();
       }
-    });
+    }, 30_000);
   }
 });

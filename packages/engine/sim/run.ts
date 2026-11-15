@@ -1,8 +1,7 @@
 import {
-  applyAction, checkInvariants, createGame, playerView,
-  type Archetype, type GameState,
+  applyAction, botAction, checkInvariants, createGame, playerView,
+  type Archetype, type GameConfig, type GameState,
 } from "../src/index.js";
-import { decide } from "./bot.js";
 
 export interface SimResult {
   finished: boolean;
@@ -18,15 +17,23 @@ export interface SimResult {
   final: GameState;
 }
 
-export function simulate(seed: number, archetypes: Archetype[], maxActions = 5000): SimResult {
+export interface SimOptions {
+  maxActions?: number;
+  /** Rule overrides, as passed to createGame. */
+  config?: Partial<GameConfig>;
+}
+
+export function simulate(seed: number, archetypes: Archetype[], opts: SimOptions = {}): SimResult {
+  const maxActions = opts.maxActions ?? 5000;
   let s = createGame({
     seed,
+    ...(opts.config ? { config: opts.config } : {}),
     players: archetypes.map((a, i) => ({ id: `p${i + 1}`, name: `P${i + 1}`, archetype: a })),
   });
   let actions = 0;
   while (s.phase !== "finished" && actions < maxActions) {
     const actor = s.players[s.currentIndex]!.id;
-    const action = decide(playerView(s, actor));
+    const action = botAction(playerView(s, actor));
     const res = applyAction(s, actor, action);
     if (!res.ok) throw new Error(`seed ${seed}: bot action ${JSON.stringify(action)} rejected: ${res.error}`);
     s = res.state;

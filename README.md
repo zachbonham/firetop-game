@@ -12,12 +12,13 @@ cross a private tile maze, beat the wizard, and open his chest with the right 3 
 ```
 packages/
   engine/        M1: pure TypeScript rules engine (no I/O)
-    src/         state, actions, reducer, board, maze, combat, player views
+    src/         state, actions, reducer, board, maze, combat, player views, scripted bot
     test/        vitest unit tests + simulated games
-    sim/         scripted bot + balance simulator
+    sim/         balance simulator
+  client/        M2: local hot-seat test board (Vite + React, placeholder SVG board)
 ```
 
-Later milestones add `packages/server` (Fastify + SQLite) and `packages/client`.
+M3 adds `packages/server` (Fastify + SQLite).
 
 ## Getting started
 
@@ -29,7 +30,25 @@ npm test            # unit tests + simulated games
 npm run typecheck
 npm run build       # compiles packages/engine to dist/
 npm run sim -- 200  # balance simulation, 200 games per setup
+npm run sim -- 200 --config firetop-config.json  # ...with rule overrides
+npm run dev         # local test board at http://localhost:5173
 ```
+
+## Local test board (M2)
+
+Everything runs in the browser against the engine; nothing is sent anywhere.
+
+- **Setup**: 2–4 seats, each a hot-seat human or a bot; a seed; and every `GameConfig` number
+  (archetype stats, wizard, room mix, damage, healing...). *Export for sim* writes only the
+  values you changed, ready for `npm run sim -- --config`.
+- **Play**: click highlighted squares/tiles to move; the side panel offers roll, rest, attack,
+  re-turn tile, chest guesses and the flee/auto-luck settings. *Pass screen* hides the board
+  between human turns. *Let the bot choose* plays one step for a human seat.
+- **Tuning tools**: bot speed (paused / step / ... / instant), *God view* (combination, hidden
+  rooms and loot, the maze deal, everyone's real position), *Undo* / *Undo to human*
+  (replays the action log, so dice don't change), *Timeout* (simulates the server's turn
+  timer), live stats, and *Save* / *Load* (seed + config + action log as JSON). The current
+  game is kept in localStorage; it is dropped if rule changes stop it from replaying.
 
 ## Engine in one minute
 

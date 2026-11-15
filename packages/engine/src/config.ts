@@ -1,10 +1,4 @@
-import type { Archetype, GameConfig, MonsterCard, TileType } from "./types.js";
-
-export interface ArchetypeStats {
-  skill: number;
-  stamina: number;
-  luck: number;
-}
+import type { Archetype, ArchetypeStats, GameConfig, MonsterCard, TileType } from "./types.js";
 
 /** Placeholder stats; tune with `npm run sim`. */
 export const ARCHETYPES: Record<Archetype, ArchetypeStats> = {
@@ -44,6 +38,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   combatDamage: 2,
   maxMissedTurns: 3,
   defaultFleeBelow: 4,
+  archetypes: ARCHETYPES,
   /** Room encounter mix for the 10 rooms. Keys go to monster/treasure rooms only. */
   roomMix: { monster: 5, treasure: 3, trap: 1, empty: 1 },
 };

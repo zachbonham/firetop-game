@@ -1,12 +1,13 @@
 /**
- * A simple scripted player used only for testing and balance simulation.
- * It decides from playerView() alone, so it sees exactly what a human would.
+ * A simple scripted player for simulation, tests and bot seats on the local
+ * test board. It decides from playerView() alone, so it sees exactly what a
+ * human would.
  */
-import {
-  BOARD, DEFAULT_CONFIG, E, ENTRY_ROW, LAIR, MAZE_SIZE, MAZE_SQUARE, N, S, W,
-  candidateCombos, isMazeTile, openings, rotate,
-  type Action, type MazeTileView, type NodeId, type PlayerView, type TileType,
-} from "../src/index.js";
+import { BOARD, LAIR, MAZE_SQUARE, isMazeTile } from "./board.js";
+import { candidateCombos } from "./combos.js";
+import { E, ENTRY_ROW, MAZE_SIZE, N, S, W, openings, rotate } from "./maze.js";
+import type { Action, NodeId, TileType } from "./types.js";
+import type { MazeTileView, PlayerView } from "./view.js";
 
 const DIRS = [N, E, S, W] as const;
 
@@ -43,10 +44,11 @@ function goMazeNow(usable: number[][]) {
   return usable.length > 0;
 }
 
-export function decide(view: PlayerView): Action {
+/** Pick an action for the viewer of `view` (it must be their turn). */
+export function botAction(view: PlayerView): Action {
   const me = view.players.find((p) => p.id === view.viewerId)!;
   const mine = view.me!;
-  const cfg = DEFAULT_CONFIG;
+  const cfg = view.config;
   const mazeView = new Map(mine.maze.map((t) => [`${t.row}:${t.col}`, openings(t.type, t.rotation)]));
   const revealed = (r: number, c: number) => mazeView.has(`${r}:${c}`);
 
