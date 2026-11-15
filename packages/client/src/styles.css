@@ -219,3 +219,20 @@ a.button.primary { background: var(--accent); color: #1a1a1a; font-weight: 600; 
   .invites li { grid-template-columns: 1fr auto; }
   .invites li b { grid-column: 1 / -1; }
 }
+/* New-game seats: a table on desktop, one two-line card per seat on phones */
+@media (max-width: 600px) {
+  .seats, .seats tbody { display: block; width: 100%; }
+  .seats thead { display: none; }
+  .seats tr {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px; align-items: center;
+    padding: 6px 0; border-top: 1px solid var(--line);
+  }
+  .seats tr:first-child { border-top: none; }
+  .seats td { padding: 0; min-width: 0; }
+  .seats td:nth-child(1) { grid-column: 1; grid-row: 1 / 3; }
+  .seats td:nth-child(2) { grid-column: 2 / 4; grid-row: 1; }
+  .seats td:nth-child(3) { grid-column: 2; grid-row: 2; }
+  .seats td:nth-child(4) { grid-column: 3 / 5; grid-row: 2; }
+  .seats td:nth-child(5) { grid-column: 4; grid-row: 1; }
+  .seats input, .seats select { width: 100%; box-sizing: border-box; }
+}

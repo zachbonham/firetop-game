@@ -65,14 +65,14 @@ export function Lobby() {
             {seats.map((s, i) => (
               <tr key={i}>
                 <td><Portrait archetype={s.archetype} color={seatColor(i)} size={28} /></td>
-                <td><input value={s.name} placeholder={s.bot ? `Bot ${i + 1}` : `Player ${i + 1}`} maxLength={24} onChange={(e) => setSeat(i, { name: e.target.value })} /></td>
+                <td><input aria-label="Name" value={s.name} placeholder={s.bot ? `Bot ${i + 1}` : `Player ${i + 1}`} maxLength={24} onChange={(e) => setSeat(i, { name: e.target.value })} /></td>
                 <td>
-                  <select value={s.archetype} onChange={(e) => setSeat(i, { archetype: e.target.value as Archetype })}>
+                  <select aria-label="Hero" value={s.archetype} onChange={(e) => setSeat(i, { archetype: e.target.value as Archetype })}>
                     {ARCHS.map((a) => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </td>
                 <td>
-                  <select value={s.bot ? "bot" : "human"} onChange={(e) => setSeat(i, { bot: e.target.value === "bot" })}>
+                  <select aria-label="Played by" value={s.bot ? "bot" : "human"} onChange={(e) => setSeat(i, { bot: e.target.value === "bot" })}>
                     <option value="human">a person (invite link)</option>
                     <option value="bot">a bot</option>
                   </select>
