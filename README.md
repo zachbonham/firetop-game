@@ -74,7 +74,7 @@ Everything runs in the browser against the engine; nothing is sent anywhere.
 - **Reviewing a game**: `npm run replay -- <file>` prints the combination, every room, final
   players, stats and the full log including private entries (`--all` adds the action list).
 
-## Server (M3)
+## Server (M3, M4)
 
 `packages/server` is a Fastify app over one SQLite file (Node's built-in `node:sqlite`, so no
 native build). It stores each game's seed, rule overrides, `RULES_VERSION`, seats and the action
@@ -93,10 +93,11 @@ an actor. Anyone with the link plays that seat.
 
 | Request | Auth | Response |
 |---------|------|----------|
-| `POST /api/games` `{seed?, config?, seats: [{name, archetype, bot?}]}` (2-4 seats, at least one human) | none | `201 {gameId, rulesVersion, invites: [{playerId, name, url}]}` |
-| `GET /api/games/:id` | seat token | `{gameId, seq, playerId, seats, view}` |
+| `POST /api/games` `{seed?, config?, turnSeconds?, seats: [{name, archetype, bot?}]}` (2-4 seats, at least one human) | none | `201 {gameId, rulesVersion, invites: [{playerId, name, url}]}` |
+| `GET /api/games/:id` | seat token | `{gameId, seq, playerId, seats, status, turnSeconds, deadline, view}` |
 | `GET /api/games/:id?since=<seq>&wait=<ms>` | seat token | long-poll: as above, once `seq > since` or after `wait` (default 25 s, max 30 s) |
-| `POST /api/games/:id/actions` `{action, expectedSeq}` | seat token | `{gameId, seq, playerId, seats, view}` |
+| `POST /api/games/:id/actions` `{action, expectedSeq}` | seat token | same as `GET /api/games/:id` |
+| `GET /api/games/:id/log` | none (the game id) | public log: `{gameId, seq, status, turn, turnSeconds, deadline, seats (with status), winner, log}` |
 | `GET /api/health` | none | `{ok, rulesVersion}` |
 
 - `seq` is the number of actions in the log. `view` is always `playerView(state, <your seat>)`;
@@ -110,7 +111,19 @@ an actor. Anyone with the link plays that seat.
 - Errors are `{error, code}`: `400 bad_request` (schema), `400 bad_config`, `400 rejected`
   (the engine's message, e.g. "not your turn"), `401 unauthorized` (missing or wrong token),
   `404 not_found`, `409 stale_seq` (`expectedSeq` isn't the current `seq`: reload and retry),
-  `410 rules_version`.
+  `409 game_over` (the game is finished or abandoned), `410 rules_version`.
+
+**Turn timer (M4).** `turnSeconds` is one of 3600, 43200, 86400 (default) or 259200 (1h, 12h,
+24h, 3 days). It's a server setting, not a rule, so it doesn't affect replays or `RULES_VERSION`.
+`deadline` (ISO) restarts only when the turn passes to the next player, not on every action
+within a turn or when another player changes their settings. Every minute the server sweeps
+for overdue games and applies a `system` `{type: "timeout"}` (logged publicly), then lets bots
+play, through the same commit path as a player's action. After downtime, an overdue game gets
+one timeout and then a fresh deadline: players aren't punished for the outage.
+`status` is `active`, `finished` or `abandoned`. Abandoned means no human players are left
+(all removed for missed turns). Bots stop, `deadline` becomes null, actions get `409 game_over`,
+and nobody wins, even if the engine's last-player-standing rule names a bot (`view.winner`
+then means nothing, and `/log` reports `winner: null`).
 
 ## Engine in one minute
 

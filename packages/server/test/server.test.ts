@@ -263,7 +263,7 @@ describe("a full game over HTTP", () => {
     expect(log.length).toBe(final.seq);
     expect(log.some((a) => a.actor === "p2")).toBe(true);
     expect(log.some((a) => a.actor === "p3")).toBe(true);
-    expect((await post(s, gameId, tokens.p1!, { type: "roll" }, final.seq)).statusCode).toBe(400);
+    expect((await post(s, gameId, tokens.p1!, { type: "roll" }, final.seq)).statusCode).toBe(409); // game_over
   });
 
   it("bots move first when a bot holds the first seat", async () => {
