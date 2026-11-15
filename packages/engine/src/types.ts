@@ -29,6 +29,10 @@ export interface ArchetypeStats {
   skill: number;
   stamina: number;
   luck: number;
+  /** Extra Stamina each rest restores (on top of restAmount). Default 0. */
+  restBonus?: number;
+  /** Luck each rest restores, never above the archetype's starting Luck. Default 0. */
+  luckOnRest?: number;
 }
 
 export interface GameConfig {
@@ -42,6 +46,8 @@ export interface GameConfig {
   combatDamage: number;
   maxMissedTurns: number;
   defaultFleeBelow: number;
+  /** Stamina lost when fleeing a fight (a parting blow); it can defeat you. */
+  fleeDamage: number;
   /** Starting stats per archetype (defaults to ARCHETYPES). */
   archetypes: Record<Archetype, ArchetypeStats>;
   roomMix: { monster: number; treasure: number; trap: number; empty: number };

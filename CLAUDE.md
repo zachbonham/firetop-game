@@ -19,6 +19,8 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
 
 ## Commands
 - `npm test`, `npm run typecheck`, `npm run build`, `npm run sim -- <games> [--config overrides.json]`
+- `npm run diag -- <games> [--config overrides.json]`: per-archetype breakdown of 2-player games
+  (monster/wizard/PvP results, defeats, rests, game time); use it to see *why* one side wins.
 - `npm run replay -- playtests/<file>.json [--all]`: replay a saved game and print secrets,
   final state, stats and the full log. Local games autosave to `playtests/autosave/` (gitignored).
 - `npm run dev`: local hot-seat test board (packages/client, Vite). It imports the engine

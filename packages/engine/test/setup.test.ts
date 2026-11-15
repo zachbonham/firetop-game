@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkInvariants, createGame, isSolvable } from "../src/index.js";
+import { ARCHETYPES, checkInvariants, createGame, isSolvable } from "../src/index.js";
 import { newGame } from "./helpers.js";
 
 describe("createGame", () => {
@@ -50,8 +50,8 @@ describe("createGame", () => {
   it("starts everyone at the entrance with archetype stats", () => {
     const s = newGame(1, 3);
     expect(s.players.map((p) => p.pos)).toEqual(["entrance", "entrance", "entrance"]);
-    expect(s.players[0]!.skill).toBe(10);
-    expect(s.players[1]!.maxStamina).toBe(20);
-    expect(s.players[2]!.luck).toBe(4);
+    expect(s.players[0]!.skill).toBe(ARCHETYPES.warrior.skill);
+    expect(s.players[1]!.maxStamina).toBe(ARCHETYPES.survivor.stamina);
+    expect(s.players[2]!.luck).toBe(ARCHETYPES.lucky.luck);
   });
 });

@@ -27,17 +27,23 @@ const MAX_ROUNDS = 200;
  * Resolve a whole fight in one call (async-friendly: no back-and-forth).
  * Each round both sides roll 2d6 + Skill; the lower roll loses `damage`
  * Stamina (less any block, minimum 1); ties do nothing. A side that is losing a round may spend a Luck
- * token to reroll once if autoLuck is on.
+ * token to reroll once if autoLuck is on. A side below its fleeBelow runs
+ * away before the next round, losing `fleeDamage` Stamina as it goes.
  */
-export function resolveCombat(a0: Fighter, b0: Fighter, rng: Rng, damage: number): CombatResult {
+export function resolveCombat(a0: Fighter, b0: Fighter, rng: Rng, damage: number, fleeDamage = 0): CombatResult {
   const a = { ...a0 };
   const b = { ...b0 };
   const luckSpent = { a: 0, b: 0 };
   const wantsToFlee = (f: Fighter) => f.fleeBelow !== null && f.fleeBelow > 0 && f.stamina < f.fleeBelow;
 
+  // Fleeing costs a parting blow; if that drops you to 0 you fall instead.
+  const flee = (f: Fighter) => {
+    f.stamina = Math.max(0, f.stamina - fleeDamage);
+    return f.stamina > 0;
+  };
   for (let round = 1; round <= MAX_ROUNDS; round++) {
-    if (wantsToFlee(a)) return { winner: "b", fled: "a", a, b, rounds: round - 1, luckSpent };
-    if (wantsToFlee(b)) return { winner: "a", fled: "b", a, b, rounds: round - 1, luckSpent };
+    if (wantsToFlee(a)) return { winner: "b", fled: flee(a) ? "a" : null, a, b, rounds: round - 1, luckSpent };
+    if (wantsToFlee(b)) return { winner: "a", fled: flee(b) ? "b" : null, a, b, rounds: round - 1, luckSpent };
 
     let ra = rng.twoD6() + a.skill;
     let rb = rng.twoD6() + b.skill;

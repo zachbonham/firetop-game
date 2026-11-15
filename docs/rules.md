@@ -20,15 +20,19 @@ If everyone else leaves the game (3 missed turns in a row), the last player wins
 ## Characters
 Starting stats (defaults; per-game overrides via `config.archetypes`):
 
-| Archetype | Skill | Stamina | Luck |
-|---|---|---|---|
-| Warrior | 10 | 14 | 1 |
-| Survivor | 8 | 20 | 2 |
-| Lucky | 8 | 14 | 4 |
+| Archetype | Skill | Stamina | Luck | Resting |
+|---|---|---|---|---|
+| Warrior | 9 | 14 | 1 | +4 Stamina |
+| Survivor | 8 | 20 | 2 | +6 Stamina (`restBonus` 2) |
+| Lucky | 8 | 14 | 5 | +4 Stamina and +2 Luck, never above starting Luck (`luckOnRest` 2) |
+
+Luck is spent in combat (see below), so the Lucky earn it back by resting. A Potion of Luck can
+still take anyone above their starting Luck. Rules v3 tuned these so each archetype wins
+roughly half its two-player match-ups in `npm run sim`.
 
 ## A turn
 Before rolling you may **use items** (free, any number). Then, instead of rolling you may
-**rest** (+4 Stamina *(assumed)*), **attack** a player on your square, or (in the maze)
+**rest** (+4 Stamina, plus your archetype's rest bonus), **attack** a player on your square, or (in the maze)
 **re-turn** a tile.
 
 1. **Roll** 1d6 (server-side).
@@ -58,13 +62,15 @@ the Entrance.
 One action resolves the whole fight. Each round both sides roll 2d6 + Skill; the lower loses
 2 Stamina (less a shield's block). You flee automatically once below your flee threshold (default 4). With auto-luck on,
 a Luck token rerolls a round you were losing. Fleeing a monster puts you back one square.
+Fleeing costs 2 Stamina as you go (`fleeDamage`); if that takes you to 0 you are defeated instead.
 
 ## Player vs player
 Winner takes 1 key (attacker chooses which; a winning defender takes one at random). The loser
 is protected from attacks until their next turn. Keys held are public.
 
 ## Defeat (0 Stamina)
-Drop all keys where you fell (unless your Amulet of Return saves them), wake at the Entrance — or
+Drop all keys where you fell (unless your Amulet of Return saves them; keys lost in the lair
+or the maze land on the maze square instead, so they stay reachable), wake at the Entrance — or
 the camp, once you have reached it — with half Stamina, and miss your next turn.
 
 ## Maze
@@ -78,7 +84,7 @@ the camp, once you have reached it — with half Stamina, and miss your next tur
   player.*
 
 ## Wizard and chest
-- Entering the lair starts a duel with the wizard (Skill 10, Stamina 14 *(tuned in M1)*), at full
+- Entering the lair starts a duel with the wizard (Skill 9, Stamina 12, tuned in rules v3), at full
   Stamina every time. Flee: back to the maze square. Lose: normal defeat.
 - While in the lair you can't roll: guess the chest, rest, or leave (back to the maze square,
   wizard must be beaten again).
