@@ -59,5 +59,9 @@ export default defineConfig({
   plugins: [react(), autosave()],
   resolve: { alias: { "@firetop/engine": engineSrc } },
   define: { __GIT_COMMIT__: JSON.stringify(gitCommit()) },
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Online games: the API server (npm run server) listens on 3000.
+    proxy: { "/api": { target: `http://127.0.0.1:${process.env.FIRETOP_API_PORT ?? 3000}`, changeOrigin: true } },
+  },
 });

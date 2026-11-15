@@ -204,3 +204,18 @@ svg .hint { fill: var(--muted); font-size: 11px; }
   input[type="checkbox"] { width: 20px; height: 20px; }
   .rotations button { min-width: 48px; }
 }
+
+/* Online client */
+.online a { color: var(--accent); }
+.topbar .home { text-decoration: none; font-size: 18px; }
+.my-games, .heroes { padding-left: 18px; margin: 6px 0; }
+.invites { list-style: none; padding: 0; display: grid; gap: 8px; }
+.invites li { display: grid; grid-template-columns: 8em 1fr auto; gap: 8px; align-items: center; }
+.invites input { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 12px; }
+a.button { display: inline-block; text-decoration: none; padding: 6px 12px; border-radius: 6px; }
+a.button.primary { background: var(--accent); color: #1a1a1a; font-weight: 600; }
+.actions.waiting { border-color: var(--line); }
+@media (max-width: 820px) {
+  .invites li { grid-template-columns: 1fr auto; }
+  .invites li b { grid-column: 1 / -1; }
+}

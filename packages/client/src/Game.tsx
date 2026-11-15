@@ -5,6 +5,7 @@ import {
 } from "@firetop/engine";
 import { ActionPanel, attackable } from "./ActionPanel.js";
 import { Board } from "./Board.js";
+import { useBoardFocus } from "./useBoardFocus.js";
 import { CardPopup, Portrait, cardsBetween, roomCard, type CardData } from "./Cards.js";
 import { describeNode, encounterLabel, seatColor } from "./describe.js";
 import { saveData, type AutosaveStatus } from "./autosave.js";
@@ -107,19 +108,7 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
 
   // On small screens the board is wider than the screen: keep the action in view.
   const focusNode = actorView?.me?.pos ?? (current.pos === "maze:hidden" ? null : current.pos);
-  useEffect(() => {
-    const centre = () => {
-      const wrap = boardRef.current;
-      if (!wrap || wrap.scrollWidth <= wrap.clientWidth || !focusNode) return;
-      const el = wrap.querySelector(`[data-node="${CSS.escape(focusNode)}"]`);
-      if (!el) return;
-      const w = wrap.getBoundingClientRect(), r = el.getBoundingClientRect();
-      wrap.scrollTo({ left: wrap.scrollLeft + r.left + r.width / 2 - (w.left + w.width / 2), behavior: "smooth" });
-    };
-    centre();
-    window.addEventListener("resize", centre);
-    return () => window.removeEventListener("resize", centre);
-  }, [focusNode, zoomed, covered]);
+  useBoardFocus(boardRef, focusNode, [zoomed, covered]);
 
   const onNodeClick = (id: NodeId) => {
     if (!actorView || !moveTargets.has(id)) return;
