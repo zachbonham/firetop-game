@@ -140,8 +140,16 @@ export function Setup({ initial, onStart, onLoad }: Props) {
       <section className="card">
         <h2>Rules <small>(GameConfig overrides for this game)</small></h2>
         <div className="grid">
-          <fieldset>
-            <legend>Archetypes (Skill / Stamina / Luck / +rest heal / +Luck per rest)</legend>
+          <fieldset className="wide">
+            <legend>Archetypes</legend>
+            <div className="arch-row arch-head">
+              <span />
+              <span>Skill</span>
+              <span>Stamina</span>
+              <span>Luck</span>
+              <span title="Extra Stamina each rest restores">Rest +Stam</span>
+              <span title="Luck each rest restores, up to starting Luck">Rest +Luck</span>
+            </div>
             {ARCHS.map((a) => (
               <div key={a} className="arch-row">
                 <b>{a}</b>
