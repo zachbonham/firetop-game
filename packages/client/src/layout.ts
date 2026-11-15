@@ -4,7 +4,7 @@ import { BOARD, CONNECTIONS, MAZE_SIZE, ROOM_IDS, ROOM_SIZES, type LocationId, t
  * Placeholder board geometry for the local test board. Locations sit on a
  * grid by depth (entrance on the left, lair on the right); room squares run
  * left-to-right; path squares are spaced evenly between the rooms they join.
- * M5 replaces this with real board art.
+ * M5 draws art over this geometry (Board.tsx); the positions are unchanged.
  */
 
 export interface Point {

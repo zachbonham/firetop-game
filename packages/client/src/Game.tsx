@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ITEM_NAMES, botAction, candidateCombos, playerView,
   type Action, type Actor, type GameState, type NodeId, type PlayerView,
 } from "@firetop/engine";
 import { ActionPanel, attackable } from "./ActionPanel.js";
 import { Board } from "./Board.js";
+import { CardPopup, Portrait, cardsBetween, roomCard, type CardData } from "./Cards.js";
 import { describeNode, encounterLabel, seatColor } from "./describe.js";
 import { saveData, type AutosaveStatus } from "./autosave.js";
 import { downloadJson } from "./files.js";
@@ -38,6 +39,11 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
   const [selectedTo, setSelectedTo] = useState<NodeId | null>(null);
   const [selectedTile, setSelectedTile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCards, setShowCards] = useState(true);
+  const [cards, setCards] = useState<CardData[]>([]);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(true);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelectedTo(null);
@@ -60,6 +66,10 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
       return false;
     }
     setError(null);
+    if (showCards && actor !== "system" && !isBot(actor)) {
+      const shown = cardsBetween(playerView(state, actor), playerView(r.session.state, actor));
+      if (shown.length) setCards(shown);
+    }
     setSession(r.session);
     return true;
   };
@@ -95,10 +105,35 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
 
   const moveTargets = new Set(actorView?.me?.moveOptions.map((o) => o.to) ?? []);
 
+  // On small screens the board is wider than the screen: keep the action in view.
+  const focusNode = actorView?.me?.pos ?? (current.pos === "maze:hidden" ? null : current.pos);
+  useEffect(() => {
+    const centre = () => {
+      const wrap = boardRef.current;
+      if (!wrap || wrap.scrollWidth <= wrap.clientWidth || !focusNode) return;
+      const el = wrap.querySelector(`[data-node="${CSS.escape(focusNode)}"]`);
+      if (!el) return;
+      const w = wrap.getBoundingClientRect(), r = el.getBoundingClientRect();
+      wrap.scrollTo({ left: wrap.scrollLeft + r.left + r.width / 2 - (w.left + w.width / 2), behavior: "smooth" });
+    };
+    centre();
+    window.addEventListener("resize", centre);
+    return () => window.removeEventListener("resize", centre);
+  }, [focusNode, zoomed, covered]);
+
   const onNodeClick = (id: NodeId) => {
     if (!actorView || !moveTargets.has(id)) return;
     if (attackable(actorView, id).length === 0) apply(current.id, { type: "move", to: id });
     else setSelectedTo(id);
+  };
+  const onRoomClick = (room: string) => {
+    const real = state.rooms[room];
+    if (!real) return;
+    if (god) return setCards([roomCard(room, real.encounter, { cleared: real.cleared, secret: !real.revealed })]);
+    const pub = view.rooms[room];
+    if (pub?.revealed && pub.encounter) return setCards([roomCard(room, pub.encounter, { cleared: pub.cleared })]);
+    const peek = view.me?.peeks[room];
+    if (peek) setCards([roomCard(room, peek, { secret: true })]);
   };
   const onTileClick = (row: number, col: number) => {
     if (actorView && state.phase === "roll") setSelectedTile(`${row}:${col}`);
@@ -117,6 +152,8 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
           {state.pendingRoll !== null ? ` · rolled ${state.pendingRoll}` : ""}
         </span>
         <span className="spacer" />
+        <button className="tools-toggle" onClick={() => setToolsOpen(!toolsOpen)} aria-expanded={toolsOpen}>☰ Tools</button>
+        <div className={`tools${toolsOpen ? " open" : ""}`}>
         <label>
           Bots{" "}
           <select value={speed} onChange={(e) => { setSpeed(e.target.value as Speed); setError(null); }}>
@@ -131,6 +168,9 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
         <label title="Show everything: hidden rooms, loot, the combination, the maze deal, positions in the maze">
           <input type="checkbox" checked={god} onChange={(e) => setGod(e.target.checked)} /> God view
         </label>
+        <label title="Show a card when a human player reveals a room, fights or finds something">
+          <input type="checkbox" checked={showCards} onChange={(e) => setShowCards(e.target.checked)} /> Cards
+        </label>
         <label title="Hide the board between human players' turns">
           <input type="checkbox" checked={passScreen} onChange={(e) => setPassScreen(e.target.checked)} /> Pass screen
         </label>
@@ -141,13 +181,17 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
         <button onClick={() => apply("system", { type: "timeout" })} disabled={finished} title="Simulate the server timing out this turn">⏱ Timeout</button>
         <button onClick={() => downloadJson(`firetop-${sessionName(session.setup)}-t${state.turn}.json`, saveData(session))} title="Download a copy (games are also autosaved)">Save</button>
         <button onClick={onNewGame}>New game</button>
+        </div>
       </header>
 
+      {cards.length > 0 && <CardPopup cards={cards} onClose={() => setCards([])} />}
       {error && <div className="error banner" onClick={() => setError(null)}>{error} <small>(click to dismiss{speed !== "paused" ? "; bots wait until dismissed" : ""})</small></div>}
       {winner && <div className="win banner">🏆 {winner.name} wins on turn {state.turn} ({st.turnsPerPlayer} turns per player).</div>}
 
       <div className="main">
-        <div className="board-wrap">
+        <div className="board-col">
+        <div className={`board-wrap${zoomed ? " zoomed" : ""}`} ref={boardRef}>
+          <button className="zoom-toggle" onClick={() => setZoomed(!zoomed)} title="Phone only: zoomed and scrollable, or the whole board">{zoomed ? "Whole board" : "Zoom in"}</button>
           {covered ? (
             <div className="cover">
               <p>Pass the device to</p>
@@ -164,8 +208,10 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
               selectedTile={selectedTile}
               onNodeClick={onNodeClick}
               onTileClick={onTileClick}
+              onRoomClick={onRoomClick}
             />
           )}
+        </div>
           <p className="hint">
             Viewing as <b>{god ? `god (maze shown for ${current.name})` : covered ? "nobody" : state.players.find((p) => p.id === viewerId)?.name ?? "spectator"}</b>.
             Hover squares for ids.
@@ -218,7 +264,7 @@ function Players({ state, view, god, isBot, onSettings }: {
         return (
           <div key={real.id} className={`player${i === state.currentIndex ? " current" : ""}${p.status !== "active" ? " removed" : ""}`}>
             <div>
-              <span className="swatch" style={{ background: seatColor(i) }} /> <b>{p.name}</b> <small>{p.archetype}{isBot(p.id) ? " · bot" : ""}</small>
+              <Portrait archetype={p.archetype} color={seatColor(i)} /> <b>{p.name}</b> <small>{p.archetype}{isBot(p.id) ? " · bot" : ""}</small>
             </div>
             <div className="stats-line">
               Skill {p.skill} · Stamina <meter min={0} max={p.maxStamina} value={p.stamina} /> {p.stamina}/{p.maxStamina} · Luck {p.luck}

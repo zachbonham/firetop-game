@@ -1,3 +1,6 @@
+# Claude Code subagent worktrees
+.claude/worktrees/
+
 node_modules/
 dist/
 coverage/
