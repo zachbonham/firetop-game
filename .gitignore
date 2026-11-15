@@ -9,3 +9,9 @@ coverage/
 
 # Local playtest autosaves (copy a game out of here to keep it)
 playtests/autosave/
+
+# Server database (npm run server; FIRETOP_DB overrides the path)
+data/
+*.db
+*.db-wal
+*.db-shm

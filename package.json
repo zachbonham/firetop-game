@@ -13,9 +13,10 @@
     "sim": "npm run sim -w @firetop/engine --",
     "diag": "npm run diag -w @firetop/engine --",
     "dev": "npm run dev -w @firetop/client",
+    "server": "npm run dev -w @firetop/server",
     "replay": "npm run replay -w @firetop/client --"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   }
 }

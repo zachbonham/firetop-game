@@ -16,23 +16,25 @@ packages/
     test/        vitest unit tests + simulated games
     sim/         balance simulator
   client/        M2: local hot-seat test board (Vite + React, placeholder SVG board)
+  server/        M3: game server (Fastify + one SQLite file, invite links, action log)
+    src/         app (routes), games (replay cache, bots, auth), db (node:sqlite), schemas
+    test/        vitest API tests via fastify.inject
 ```
-
-M3 adds `packages/server` (Fastify + SQLite).
 
 ## Getting started
 
-Requires Node 20+.
+Requires Node 22.13+ (the server uses the built-in `node:sqlite`; the engine and client alone run on Node 20).
 
 ```bash
 npm install
 npm test            # unit tests + simulated games
 npm run typecheck
-npm run build       # compiles packages/engine to dist/
+npm run build       # compiles packages/engine to dist/ (client: vite build; server: typecheck)
 npm run sim -- 200  # balance simulation, 200 games per setup
 npm run sim -- 200 --config firetop-config.json  # ...with rule overrides
 npm run dev         # local test board at http://localhost:5173
 npm run replay -- playtests/autosave/<file>.json  # print a saved game in full
+npm run server      # game server at http://127.0.0.1:3000 (data in data/firetop.db)
 ```
 
 ## Local test board (M2)
@@ -56,6 +58,44 @@ Everything runs in the browser against the engine; nothing is sent anywhere.
   to `playtests/autosave/unloadable-*.json` rather than lost.
 - **Reviewing a game**: `npm run replay -- <file>` prints the combination, every room, final
   players, stats and the full log including private entries (`--all` adds the action list).
+
+## Server (M3)
+
+`packages/server` is a Fastify app over one SQLite file (Node's built-in `node:sqlite`, so no
+native build). It stores each game's seed, rule overrides, `RULES_VERSION`, seats and the action
+log; the game state is never stored but rebuilt by replaying the log through the engine (cached
+in memory). Bot moves are logged like any other action. A game stored under another
+`RULES_VERSION` is refused (410), not replayed.
+
+Settings (env): `FIRETOP_DB` (default `data/firetop.db`, gitignored), `PORT` (3000), `HOST`
+(127.0.0.1), `PUBLIC_URL` (prefix for invite links; default relative links).
+
+**Seat tokens.** Creating a game returns one invite link per human seat:
+`/play/<gameId>#<token>`. The token (32 random bytes, base64url) is in the URL fragment so it
+never reaches server logs; the server keeps only its sha256. Clients send it as
+`Authorization: Bearer <token>`, and the server acts as that token's seat: requests never name
+an actor. Anyone with the link plays that seat.
+
+| Request | Auth | Response |
+|---------|------|----------|
+| `POST /api/games` `{seed?, config?, seats: [{name, archetype, bot?}]}` (2-4 seats, at least one human) | none | `201 {gameId, rulesVersion, invites: [{playerId, name, url}]}` |
+| `GET /api/games/:id` | seat token | `{gameId, seq, playerId, seats, view}` |
+| `GET /api/games/:id?since=<seq>&wait=<ms>` | seat token | long-poll: as above, once `seq > since` or after `wait` (default 25 s, max 30 s) |
+| `POST /api/games/:id/actions` `{action, expectedSeq}` | seat token | `{gameId, seq, playerId, seats, view}` |
+| `GET /api/health` | none | `{ok, rulesVersion}` |
+
+- `seq` is the number of actions in the log. `view` is always `playerView(state, <your seat>)`;
+  `seats` is the public seat list (`playerId, name, archetype, bot`).
+- An action is checked against a JSON schema (any player `Action` except `timeout`, which only
+  the server sends), then applied by the engine as the token's seat. After it, bot seats play
+  (`botAction(playerView(...))`) until a human is up or the game ends; the human's action and the
+  bots' are appended in one transaction.
+- `config` overrides are checked against `DEFAULT_CONFIG`'s shape (nested objects in full,
+  whole numbers 0-100) and the setup must pass `checkInvariants`.
+- Errors are `{error, code}`: `400 bad_request` (schema), `400 bad_config`, `400 rejected`
+  (the engine's message, e.g. "not your turn"), `401 unauthorized` (missing or wrong token),
+  `404 not_found`, `409 stale_seq` (`expectedSeq` isn't the current `seq`: reload and retry),
+  `410 rules_version`.
 
 ## Engine in one minute
 
