@@ -1,4 +1,5 @@
 import { ARCHETYPES, ITEM_NAMES } from "@firetop/engine";
+import { TURN_LENGTHS } from "./games.js";
 
 /**
  * JSON schemas for request bodies. Fastify's Ajv runs with removeAdditional
@@ -48,6 +49,8 @@ export const createGameBody = {
   required: ["seats"],
   properties: {
     seed: { type: "integer", minimum: 0, maximum: 4294967295 },
+    // 1 hour, 12 hours, 24 hours (default) or 3 days.
+    turnSeconds: { enum: [...TURN_LENGTHS] },
     // Checked structurally against DEFAULT_CONFIG by checkConfig().
     config: { type: "object" },
     seats: {

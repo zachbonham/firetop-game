@@ -14,6 +14,10 @@ export class ApiError extends Error {
   }
 }
 
+/** Turn lengths a game can be created with: 1 hour, 12 hours, 24 hours, 3 days. */
+export const TURN_LENGTHS = [3600, 43_200, 86_400, 259_200] as const;
+export const DEFAULT_TURN_SECONDS = 86_400;
+
 export interface NewSeat {
   name: string;
   archetype: Archetype;
@@ -24,6 +28,8 @@ export interface NewGameInput {
   seed?: number;
   config?: Partial<GameConfig>;
   seats: NewSeat[];
+  /** One of TURN_LENGTHS; default 24 hours. */
+  turnSeconds?: number;
 }
 
 export interface CreatedGame {
@@ -54,7 +60,25 @@ export interface GameResponse {
   seq: number;
   playerId: string;
   seats: PublicSeat[];
+  /** active, finished (someone won) or abandoned (no human players left). */
+  status: GameRow["status"];
+  turnSeconds: number;
+  /** When the current turn times out (ISO), or null once the game is over. */
+  deadline: string | null;
   view: PlayerView;
+}
+
+/** What anyone with the game id may see: the public log, no seat token needed. */
+export interface PublicLogResponse {
+  gameId: string;
+  seq: number;
+  status: GameRow["status"];
+  turn: number;
+  turnSeconds: number;
+  deadline: string | null;
+  seats: (PublicSeat & { status: "active" | "removed" })[];
+  winner: string | null;
+  log: PlayerView["log"];
 }
 
 export interface StoreOptions {
@@ -85,6 +109,10 @@ export class GameStore {
 
   create(input: NewGameInput): CreatedGame {
     if (!input.seats.some((s) => !s.bot)) throw new ApiError(400, "a game needs at least one human seat", "bad_request");
+    const turnSeconds = input.turnSeconds ?? DEFAULT_TURN_SECONDS;
+    if (!(TURN_LENGTHS as readonly number[]).includes(turnSeconds)) {
+      throw new ApiError(400, `turnSeconds must be one of ${TURN_LENGTHS.join(", ")}`, "bad_request");
+    }
     const configError = input.config === undefined ? null : checkConfig(input.config);
     if (configError) throw new ApiError(400, configError, "bad_config");
 
@@ -112,7 +140,11 @@ export class GameStore {
     const broken = checkInvariants(state);
     if (broken.length) throw new ApiError(400, `cannot set up this game: ${broken.join("; ")}`, "bad_config");
 
-    const row: GameRow = { id: randomBytes(9).toString("base64url"), seed, config, rulesVersion: RULES_VERSION, status: "active", createdAt: this.now() };
+    const createdAt = this.now();
+    const row: GameRow = {
+      id: randomBytes(9).toString("base64url"), seed, config, rulesVersion: RULES_VERSION, status: "active", createdAt,
+      turnSeconds, deadline: this.deadlineFrom(createdAt, turnSeconds),
+    };
     this.db.insertGame(row, seats);
     const game: LiveGame = { row, seats, state, seq: 0 };
     this.remember(game);
@@ -152,7 +184,7 @@ export class GameStore {
     const game: LiveGame = { row, seats, state, seq: actions.length };
     this.remember(game);
     // A bot left on move (the safety cap was hit) gets to play now.
-    this.advanceBots(game);
+    if (row.status === "active") this.advanceBots(game);
     return game;
   }
 
@@ -173,6 +205,7 @@ export class GameStore {
    */
   act(gameId: string, playerId: string, action: Action, expectedSeq: number): LiveGame {
     const game = this.load(gameId);
+    if (game.row.status !== "active") throw new ApiError(409, `this game is ${game.row.status}`, "game_over");
     if (expectedSeq !== game.seq) {
       throw new ApiError(409, `the game has moved on (seq ${game.seq}, you sent ${expectedSeq}); reload and try again`, "stale_seq");
     }
@@ -191,8 +224,59 @@ export class GameStore {
       seq: game.seq,
       playerId,
       seats: game.seats.map((s) => ({ playerId: s.playerId, name: s.name, archetype: s.archetype, bot: s.isBot })),
+      status: game.row.status,
+      turnSeconds: game.row.turnSeconds,
+      deadline: game.row.deadline,
       view: playerView(game.state, playerId),
     };
+  }
+
+  /** The public log and seat list, for spectators (no secrets, no private log entries). */
+  publicLog(gameId: string): PublicLogResponse {
+    const game = this.load(gameId);
+    const view = playerView(game.state, null);
+    return {
+      gameId: game.row.id,
+      seq: game.seq,
+      status: game.row.status,
+      turn: game.state.turn,
+      turnSeconds: game.row.turnSeconds,
+      deadline: game.row.deadline,
+      seats: game.seats.map((s) => ({
+        playerId: s.playerId, name: s.name, archetype: s.archetype, bot: s.isBot,
+        status: game.state.players.find((p) => p.id === s.playerId)!.status,
+      })),
+      winner: game.row.status === "finished" ? game.state.winner : null,
+      log: view.log,
+    };
+  }
+
+  /**
+   * Time out every human whose turn deadline has passed (the server calls this
+   * every minute). Each overdue game gets one system timeout, then its bots
+   * play, through the same commit path as a player's action. Returns how many
+   * turns were timed out.
+   */
+  sweep(): number {
+    const now = this.now();
+    let n = 0;
+    for (const id of this.db.dueGames(now)) {
+      let game: LiveGame;
+      try {
+        game = this.load(id);
+      } catch {
+        continue; // e.g. stored under other rules: leave it alone
+      }
+      if (game.row.status !== "active" || game.row.deadline === null || game.row.deadline > now) continue;
+      const r = applyAction(game.state, "system", { type: "timeout" });
+      if (!r.ok) continue;
+      const rows: ActionRow[] = [{ seq: game.seq + 1, actor: "system", action: { type: "timeout" } }];
+      const bots = this.playBots(game.seats, r.state, game.seq + 1);
+      rows.push(...bots.rows);
+      this.commit(game, rows, bots.state);
+      n++;
+    }
+    return n;
   }
 
   /** Resolve once the game's seq passes `since`, or after `ms` (or on `signal` abort). */
@@ -228,7 +312,7 @@ export class GameStore {
   private playBots(seats: SeatRow[], state: GameState, seq: number): { rows: ActionRow[]; state: GameState } {
     const botIds = new Set(seats.filter((s) => s.isBot).map((s) => s.playerId));
     const rows: ActionRow[] = [];
-    while (state.phase !== "finished" && rows.length < this.maxBotActions) {
+    while (state.phase !== "finished" && rows.length < this.maxBotActions && humansLeft(seats, state)) {
       const id = state.players[state.currentIndex]!.id;
       if (!botIds.has(id)) break;
       const action = botAction(playerView(state, id));
@@ -248,15 +332,29 @@ export class GameStore {
   }
 
   private commit(game: LiveGame, rows: ActionRow[], state: GameState): void {
-    const finished = state.phase === "finished";
+    const now = this.now();
+    // No humans left means the game is over, whatever the engine says: bots never win on their own.
+    const status: GameRow["status"] = !humansLeft(game.seats, state) ? "abandoned" : state.phase === "finished" ? "finished" : "active";
+    // The clock restarts only when the turn passes, not for every action within it
+    // (or another player changing their settings).
+    const deadline = status !== "active"
+      ? null
+      : state.turn !== game.state.turn || game.row.deadline === null
+        ? this.deadlineFrom(now, game.row.turnSeconds)
+        : game.row.deadline;
     this.db.transaction(() => {
-      this.db.appendActions(game.row.id, rows, this.now());
-      if (finished && game.row.status !== "finished") this.db.setStatus(game.row.id, "finished");
+      this.db.appendActions(game.row.id, rows, now);
+      this.db.setTurn(game.row.id, status, deadline);
     });
     game.state = state;
     game.seq += rows.length;
-    if (finished) game.row.status = "finished";
+    game.row.status = status;
+    game.row.deadline = deadline;
     this.changes.emit(game.row.id, game.seq);
+  }
+
+  private deadlineFrom(iso: string, seconds: number): string {
+    return new Date(Date.parse(iso) + seconds * 1000).toISOString();
   }
 
   private remember(game: LiveGame): void {
@@ -271,3 +369,8 @@ export class GameStore {
 }
 
 
+
+/** Is any human seat still in the game? */
+function humansLeft(seats: SeatRow[], state: GameState): boolean {
+  return seats.some((s) => !s.isBot && state.players.find((p) => p.id === s.playerId)?.status === "active");
+}

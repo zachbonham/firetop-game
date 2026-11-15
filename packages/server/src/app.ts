@@ -12,6 +12,8 @@ export interface ServerOptions extends StoreOptions {
   /** Default long-poll wait when `since` is given without `wait` (ms). */
   defaultWaitMs?: number;
   logger?: boolean;
+  /** How often to time out overdue turns (ms). Default 60 000; 0 turns the sweeper off. */
+  sweepIntervalMs?: number;
 }
 
 export interface Server {
@@ -36,7 +38,23 @@ export function buildServer(opts: ServerOptions): Server {
     ajv: { customOptions: { removeAdditional: false } },
     bodyLimit: 64 * 1024,
   });
-  app.addHook("onClose", async () => db.close());
+  // The turn timer: time out overdue human turns every minute.
+  const sweepMs = opts.sweepIntervalMs ?? 60_000;
+  const sweeper = sweepMs > 0
+    ? setInterval(() => {
+      try {
+        const n = store.sweep();
+        if (n) app.log.info(`timed out ${n} turn${n === 1 ? "" : "s"}`);
+      } catch (e) {
+        app.log.error(e);
+      }
+    }, sweepMs)
+    : null;
+  sweeper?.unref();
+  app.addHook("onClose", async () => {
+    if (sweeper) clearInterval(sweeper);
+    db.close();
+  });
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ApiError) {
@@ -85,6 +103,10 @@ export function buildServer(opts: ServerOptions): Server {
       return store.response(store.load(req.params.id), seat.playerId);
     },
   );
+
+  // Public game log: anyone with the game id (no seat token). Never includes private entries.
+  app.get<{ Params: { id: string } }>("/api/games/:id/log", { schema: { params: gameParams } }, async (req) =>
+    store.publicLog(req.params.id));
 
   app.post<{ Params: { id: string }; Body: { action: Action; expectedSeq: number } }>(
     "/api/games/:id/actions",

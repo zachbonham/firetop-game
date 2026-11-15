@@ -92,6 +92,12 @@ the camp, once you have reached it — with half Stamina, and miss your next tur
   correct; you lose 3 Stamina.
 
 ## Timer
-The server times out a turn after its deadline (12/24/48h). A player who flipped a maze tile and
-timed out gets it turned automatically. 3 missed turns in a row removes the player and drops
-their keys.
+Each game has a turn length, picked when it is created: 1 hour, 12 hours, 24 hours (default) or 3
+days. The clock starts when your turn starts and keeps running through every step of the turn
+(rolling, moving, turning a tile); finishing early hands the turn straight to the next player.
+When it runs out, the server times the turn out. A timeout appears in the public log, and a
+player who flipped a maze tile gets it turned automatically. 3 missed turns in a row removes the
+player and drops their keys. Bots never time out.
+
+If no human players are left, the game is over: it ends as **abandoned**, with no winner, even
+if a bot is the last player standing.

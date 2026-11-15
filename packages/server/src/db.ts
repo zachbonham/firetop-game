@@ -14,8 +14,13 @@ export interface GameRow {
   seed: number;
   config: Partial<GameConfig>;
   rulesVersion: number;
-  status: "active" | "finished";
+  /** finished: someone won. abandoned: no human players were left (bots never win alone). */
+  status: "active" | "finished" | "abandoned";
   createdAt: string;
+  /** Time a human has to finish their turn before the server times it out. */
+  turnSeconds: number;
+  /** When the current turn times out (ISO); null once the game is over. */
+  deadline: string | null;
 }
 
 export interface SeatRow {
@@ -40,7 +45,9 @@ CREATE TABLE IF NOT EXISTS games (
   config        TEXT NOT NULL,
   rules_version INTEGER NOT NULL,
   status        TEXT NOT NULL,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  turn_seconds  INTEGER NOT NULL DEFAULT 86400,
+  deadline      TEXT
 );
 CREATE TABLE IF NOT EXISTS seats (
   game_id    TEXT NOT NULL REFERENCES games(id),
@@ -70,6 +77,15 @@ export class Db {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /** Add columns that newer versions introduced to an existing database file. */
+  private migrate(): void {
+    const cols = new Set(this.db.prepare("PRAGMA table_info(games)").all().map((r) => String(r.name)));
+    if (!cols.has("turn_seconds")) this.db.exec("ALTER TABLE games ADD COLUMN turn_seconds INTEGER NOT NULL DEFAULT 86400");
+    if (!cols.has("deadline")) this.db.exec("ALTER TABLE games ADD COLUMN deadline TEXT");
+    this.db.exec("CREATE INDEX IF NOT EXISTS games_due ON games (status, deadline)");
   }
 
   close(): void {
@@ -92,8 +108,8 @@ export class Db {
   insertGame(game: GameRow, seats: SeatRow[]): void {
     this.transaction(() => {
       this.db
-        .prepare("INSERT INTO games (id, seed, config, rules_version, status, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(game.id, game.seed, JSON.stringify(game.config), game.rulesVersion, game.status, game.createdAt);
+        .prepare("INSERT INTO games (id, seed, config, rules_version, status, created_at, turn_seconds, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(game.id, game.seed, JSON.stringify(game.config), game.rulesVersion, game.status, game.createdAt, game.turnSeconds, game.deadline);
       const ins = this.db.prepare(
         "INSERT INTO seats (game_id, seat_index, player_id, name, archetype, is_bot, token_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
       );
@@ -111,6 +127,8 @@ export class Db {
       rulesVersion: Number(r.rules_version),
       status: String(r.status) as GameRow["status"],
       createdAt: String(r.created_at),
+      turnSeconds: Number(r.turn_seconds),
+      deadline: r.deadline === null ? null : String(r.deadline),
     };
   }
 
@@ -140,8 +158,17 @@ export class Db {
     for (const r of rows) ins.run(gameId, r.seq, r.actor, JSON.stringify(r.action), now);
   }
 
-  setStatus(gameId: string, status: GameRow["status"]): void {
-    this.db.prepare("UPDATE games SET status = ? WHERE id = ?").run(status, gameId);
+  /** Status and turn deadline after a commit (call inside `transaction`). */
+  setTurn(gameId: string, status: GameRow["status"], deadline: string | null): void {
+    this.db.prepare("UPDATE games SET status = ?, deadline = ? WHERE id = ?").run(status, deadline, gameId);
+  }
+
+  /** Active games whose turn deadline is at or before `now` (ISO strings compare in time order). */
+  dueGames(now: string, limit = 100): string[] {
+    return this.db
+      .prepare("SELECT id FROM games WHERE status = 'active' AND deadline IS NOT NULL AND deadline <= ? ORDER BY deadline LIMIT ?")
+      .all(now, limit)
+      .map((r) => String(r.id));
   }
 
   /** Tests only: pretend a game was stored under other rules. */
