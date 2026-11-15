@@ -35,6 +35,21 @@ npm run dev         # local test board at http://localhost:5173
 npm run replay -- playtests/autosave/<file>.json  # print a saved game in full
 ```
 
+## Board art and phone layout (M5)
+
+- **Art:** the board, maze tiles, tokens, icons and encounter cards are original generated SVG.
+  To add hand-made portraits, monster art or location art, drop an image into
+  `packages/client/src/assets/art/<portraits|monsters|locations>/<slug>.webp` and it replaces the
+  generated stand-in. [docs/art.md](docs/art.md) lists every slot, its slug and a suggested size.
+- **Cards:** revealing a room, fighting, dueling, reading a scroll, guessing the chest or winning
+  pops up a card. Cards are built from the player's own views, so they never leak secrets, and
+  the online client can reuse them. Click a known room on the board to see its card. The
+  *Cards* toggle turns the pop-ups off.
+- **Phones:** under 820px wide, the side panel stacks below the board and the board becomes a
+  zoomed, horizontally scrollable view that follows the current player (*Whole board* /
+  *Zoom in* switches between them). The tools fold into a ☰ menu, and buttons are larger on
+  touch screens.
+
 ## Local test board (M2)
 
 Everything runs in the browser against the engine; nothing is sent anywhere.
