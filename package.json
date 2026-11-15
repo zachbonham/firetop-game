@@ -11,6 +11,7 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "sim": "npm run sim -w @firetop/engine --",
+    "diag": "npm run diag -w @firetop/engine --",
     "dev": "npm run dev -w @firetop/client",
     "replay": "npm run replay -w @firetop/client --"
   },

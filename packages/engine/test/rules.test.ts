@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { E, N, S, W, applyAction, openings, playerView, reachable, type GameState } from "../src/index.js";
+import { ARCHETYPES, DEFAULT_CONFIG, E, N, S, W, applyAction, openings, playerView, reachable, type GameState } from "../src/index.js";
 import { act, newGame, patch, removeKey } from "./helpers.js";
 
 const inMove = (s: GameState, roll: number) => patch(s, (x) => { x.phase = "move"; x.pendingRoll = roll; });
@@ -86,6 +86,15 @@ describe("encounters", () => {
     const s = enterRoom({ kind: "trap", damage: 3 });
     expect(s.players[0]!.stamina).toBe(11);
   });
+  it("fleeing costs Stamina, and can finish you off", () => {
+    const dragon = { kind: "monster", name: "Dragon", skill: 30, stamina: 50, loot: null } as const;
+    const fled = enterRoom(dragon, (x) => { x.players[0]!.stamina = 3; x.players[0]!.settings.fleeBelow = 4; });
+    expect(fled.players[0]!.stamina).toBe(3 - DEFAULT_CONFIG.fleeDamage);
+    expect(fled.players[0]!.pos).toBe("p:entrance-r1.1");
+    const fell = enterRoom(dragon, (x) => { x.players[0]!.stamina = DEFAULT_CONFIG.fleeDamage; x.players[0]!.settings.fleeBelow = 4; });
+    expect(fell.players[0]!.pos).toBe("entrance");
+    expect(fell.players[0]!.skipNextTurn).toBe(true);
+  });
   it("a hopeless fight makes you flee back one square", () => {
     const s = enterRoom({ kind: "monster", name: "Dragon", skill: 30, stamina: 50, loot: null }, (x) => {
       x.players[0]!.settings.fleeBelow = 10;
@@ -111,6 +120,18 @@ describe("encounters", () => {
   it("rest restores Stamina up to the maximum", () => {
     const s = act(patch(newGame(), (x) => { x.players[0]!.stamina = 12; }), "p1", { type: "rest" });
     expect(s.players[0]!.stamina).toBe(14);
+  });
+  it("Survivors heal more when they rest", () => {
+    const s = act(patch(newGame(), (x) => { x.currentIndex = 1; x.players[1]!.stamina = 10; }), "p2", { type: "rest" });
+    expect(s.players[1]!.stamina).toBe(10 + DEFAULT_CONFIG.restAmount + ARCHETYPES.survivor.restBonus!);
+  });
+  it("the Lucky win Luck back when they rest, up to their starting Luck", () => {
+    const rest = (luck: number) =>
+      act(patch(newGame(1, 3), (x) => { x.currentIndex = 2; x.players[2]!.luck = luck; }), "p3", { type: "rest" }).players[2]!.luck;
+    const start = ARCHETYPES.lucky.luck;
+    expect(rest(0)).toBe(Math.min(start, ARCHETYPES.lucky.luckOnRest!));
+    expect(rest(start - 1)).toBe(start);
+    expect(rest(start + 2)).toBe(start + 2); // a Potion of Luck can take you above it
   });
 });
 
@@ -318,6 +339,22 @@ describe("items", () => {
     expect(after.players[0]!.keys).toEqual([3]);
     expect(after.players[0]!.items).toEqual([]);
     expect(after.dropped).toEqual({});
+  });
+});
+
+describe("lair", () => {
+  it("keys lost in the lair turn up at the maze entrance", () => {
+    let s = patch(newGame(), (x) => {
+      x.combination = [1, 2, 3];
+      for (const k of [4, 5, 6]) removeKey(x, k);
+      x.players[0]!.keys = [4, 5, 6];
+      x.players[0]!.pos = "lair";
+      x.players[0]!.wizardBeaten = true;
+      x.players[0]!.stamina = 1;
+    });
+    s = act(s, "p1", { type: "guessChest", keys: [4, 5, 6] });
+    expect(s.players[0]!.keys).toEqual([]);
+    expect(s.dropped).toEqual({ maze: [4, 5, 6] });
   });
 });
 

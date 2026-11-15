@@ -141,17 +141,17 @@ export function Setup({ initial, onStart, onLoad }: Props) {
         <h2>Rules <small>(GameConfig overrides for this game)</small></h2>
         <div className="grid">
           <fieldset>
-            <legend>Archetypes (Skill / Stamina / Luck)</legend>
+            <legend>Archetypes (Skill / Stamina / Luck / +rest heal / +Luck per rest)</legend>
             {ARCHS.map((a) => (
               <div key={a} className="arch-row">
                 <b>{a}</b>
-                {(["skill", "stamina", "luck"] as const).map((stat) =>
+                {(["skill", "stamina", "luck", "restBonus", "luckOnRest"] as const).map((stat) =>
                   <input
                     key={stat}
                     type="number"
                     min={stat === "stamina" ? 1 : 0}
                     title={stat}
-                    value={cfg.archetypes[a][stat]}
+                    value={cfg.archetypes[a][stat] ?? 0}
                     onChange={(e) => upd({ archetypes: { ...cfg.archetypes, [a]: { ...cfg.archetypes[a], [stat]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } } })}
                   />,
                 )}
@@ -191,6 +191,7 @@ export function Setup({ initial, onStart, onLoad }: Props) {
             {num("Rest heals", cfg.restAmount, (v) => upd({ restAmount: v }))}
             {num("Combat damage", cfg.combatDamage, (v) => upd({ combatDamage: v }), 1)}
             {num("Default flee below", cfg.defaultFleeBelow, (v) => upd({ defaultFleeBelow: v }))}
+            {num("Fleeing costs", cfg.fleeDamage, (v) => upd({ fleeDamage: v }))}
             {num("Keys", cfg.keyCount, (v) => upd({ keyCount: v }), 1)}
             {num("Keys in combination", cfg.comboSize, (v) => upd({ comboSize: v }), 1)}
             {num("Missed turns before removal", cfg.maxMissedTurns, (v) => upd({ maxMissedTurns: v }), 1)}

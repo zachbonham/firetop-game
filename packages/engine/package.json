@@ -15,7 +15,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "sim": "tsx sim/simulate.ts"
+    "sim": "tsx sim/simulate.ts",
+    "diag": "tsx sim/diag.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

@@ -79,9 +79,13 @@ function dispatch(s: GameState, rng: Rng, actor: Actor, a: Action): string | nul
     }
     case "rest": {
       if (s.phase !== "roll") return "you can only rest instead of rolling";
+      const arch = s.config.archetypes[p.archetype];
       const before = p.stamina;
-      p.stamina = Math.min(p.maxStamina, p.stamina + s.config.restAmount);
-      log(s, "rest", `${p.name} rested (+${p.stamina - before} Stamina).`, p.id);
+      p.stamina = Math.min(p.maxStamina, p.stamina + s.config.restAmount + (arch.restBonus ?? 0));
+      const luckBefore = p.luck;
+      if (p.luck < arch.luck) p.luck = Math.min(arch.luck, p.luck + (arch.luckOnRest ?? 0));
+      const luck = p.luck > luckBefore ? `, +${p.luck - luckBefore} Luck` : "";
+      log(s, "rest", `${p.name} rested (+${p.stamina - before} Stamina${luck}).`, p.id);
       endTurn(s);
       return null;
     }
@@ -278,7 +282,7 @@ function roomEncounter(s: GameState, rng: Rng, p: Player, room: string, from: No
 
   // Monster
   const monster: Fighter = { skill: enc.skill, stamina: enc.stamina, luck: 0, fleeBelow: null, autoLuck: false };
-  const res = resolveCombat(fighterOf(s, p, true), monster, rng, s.config.combatDamage);
+  const res = resolveCombat(fighterOf(s, p, true), monster, rng, s.config.combatDamage, s.config.fleeDamage);
   applyFighter(p, res.a);
   enc.stamina = res.b.stamina;
   if (res.winner === "a") {
@@ -305,6 +309,7 @@ function wizardDuel(s: GameState, rng: Rng, p: Player): boolean {
     { skill: w.skill, stamina: w.stamina, luck: 0, fleeBelow: null, autoLuck: false },
     rng,
     s.config.combatDamage,
+    s.config.fleeDamage,
   );
   applyFighter(p, res.a);
   if (res.winner === "a") {
@@ -323,7 +328,7 @@ function wizardDuel(s: GameState, rng: Rng, p: Player): boolean {
 }
 
 function playerFight(s: GameState, rng: Rng, attacker: Player, defender: Player, stealKey?: number) {
-  const res = resolveCombat(fighterOf(s, attacker, false), fighterOf(s, defender, false), rng, s.config.combatDamage);
+  const res = resolveCombat(fighterOf(s, attacker, false), fighterOf(s, defender, false), rng, s.config.combatDamage, s.config.fleeDamage);
   applyFighter(attacker, res.a);
   applyFighter(defender, res.b);
   const [winner, loser] = res.winner === "a" ? [attacker, defender] : [defender, attacker];
@@ -376,9 +381,11 @@ function pickUpDropped(s: GameState, p: Player) {
   log(s, "pickup", `${p.name} picked up key${keys.length > 1 ? "s" : ""} ${keys.join(", ")}.`, p.id);
 }
 
+/** Keys lost in the maze or the lair turn up at the maze entrance, where anyone can reach them. */
 function dropKeys(s: GameState, p: Player) {
   if (p.keys.length === 0) return;
-  (s.dropped[p.pos] ??= []).push(...p.keys);
+  const at = p.pos === LAIR || isMazeTile(p.pos) ? MAZE_SQUARE : p.pos;
+  (s.dropped[at] ??= []).push(...p.keys);
   p.keys = [];
 }
 

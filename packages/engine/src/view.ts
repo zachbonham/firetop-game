@@ -1,7 +1,7 @@
 import { isMazeTile } from "./board.js";
 import { tileAt } from "./maze.js";
 import { reachable } from "./movement.js";
-import type { ChestGuess, Encounter, GameConfig, GameEvent, ItemId, NodeId, Phase, PlayerSettings, TileType } from "./types.js";
+import type { Archetype, ChestGuess, Encounter, GameConfig, GameEvent, ItemId, NodeId, Phase, PlayerSettings, TileType } from "./types.js";
 import type { GameState } from "./types.js";
 
 /**
@@ -31,7 +31,7 @@ export const HIDDEN_MAZE_POS = "maze:hidden";
 export interface PublicPlayer {
   id: string;
   name: string;
-  archetype: string;
+  archetype: Archetype;
   skill: number;
   stamina: number;
   maxStamina: number;

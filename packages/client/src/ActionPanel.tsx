@@ -39,6 +39,11 @@ export function ActionPanel(p: Props) {
   const me = view.players.find((x) => x.id === view.viewerId)!;
   const mine = view.me!;
   const cfg = view.config;
+  const arch = cfg.archetypes[me.archetype];
+  const restHeal = cfg.restAmount + (arch.restBonus ?? 0);
+  const restLuck = me.luck < arch.luck ? Math.min(arch.luck - me.luck, arch.luckOnRest ?? 0) : 0;
+  const restLabel = `Rest (+${restHeal}${restLuck ? `, +${restLuck} Luck` : ""})`;
+  const restUseless = me.stamina >= me.maxStamina && restLuck === 0;
 
   if (view.phase === "orient" && mine.pendingFlip) {
     const f = mine.pendingFlip;
@@ -100,7 +105,7 @@ export function ActionPanel(p: Props) {
           <p>{me.wizardBeaten ? "The wizard is beaten. Try the chest?" : "You are in the lair."}</p>
           {me.wizardBeaten && <GuessChest view={view} onGuess={(keys) => p.onAction({ type: "guessChest", keys })} />}
           <div className="row">
-            <button onClick={() => p.onAction({ type: "rest" })}>Rest (+{cfg.restAmount})</button>
+            <button onClick={() => p.onAction({ type: "rest" })}>{restLabel}</button>
             <button onClick={() => p.onAction({ type: "leaveLair" })}>Leave the lair</button>
           </div>
         </>
@@ -108,7 +113,7 @@ export function ActionPanel(p: Props) {
         <>
           <div className="row">
             <button className="primary" onClick={() => p.onAction({ type: "roll" })}>🎲 Roll</button>
-            <button onClick={() => p.onAction({ type: "rest" })} disabled={me.stamina >= me.maxStamina}>Rest (+{cfg.restAmount})</button>
+            <button onClick={() => p.onAction({ type: "rest" })} disabled={restUseless}>{restLabel}</button>
           </div>
           {here.map((t) => (
             <AttackButton key={t.id} target={t} label="Attack" onAttack={(stealKey) => p.onAction({ type: "attack", target: t.id, ...(stealKey !== undefined ? { stealKey } : {}) })} />
