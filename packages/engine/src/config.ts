@@ -9,8 +9,9 @@ import type { Archetype, ArchetypeStats, GameConfig, MonsterCard, TileType } fro
  *   3: balance pass: Warlock 9/12, Warrior Skill 9, Survivor and Lucky rest
  *      abilities, fleeing costs Stamina, keys lost in the lair or maze drop
  *      at the maze entrance.
+ *   4: re-turning a maze tile can't cut you off from the maze entrance.
  */
-export const RULES_VERSION: number = 3;
+export const RULES_VERSION: number = 4;
 
 /**
  * Tuned with `npm run sim` / `npm run diag` (rules v3): each archetype wins

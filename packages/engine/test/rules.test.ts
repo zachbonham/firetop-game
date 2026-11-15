@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARCHETYPES, DEFAULT_CONFIG, E, N, S, W, applyAction, openings, playerView, reachable, type GameState } from "../src/index.js";
+import { ARCHETYPES, DEFAULT_CONFIG, E, N, S, W, applyAction, botAction, checkInvariants, mazeHint, openings, playerView, reachable, type GameState } from "../src/index.js";
 import { act, newGame, patch, removeKey } from "./helpers.js";
 
 const inMove = (s: GameState, roll: number) => patch(s, (x) => { x.phase = "move"; x.pendingRoll = roll; });
@@ -166,12 +166,54 @@ describe("maze", () => {
   });
   it("you can re-turn your own tile or an adjacent revealed tile, not a far one", () => {
     const s = patch(newGame(), (x) => {
+      x.mazeTiles[1 * 4 + 0] = "cross"; // open to the maze square, so the player is connected
       x.players[0]!.pos = "m:1:0";
       x.players[0]!.maze = { "1:0": 0, "1:1": 0, "3:3": 0 };
     });
     expect(applyAction(s, "p1", { type: "rotateTile", row: 1, col: 1, rotation: 2 }).ok).toBe(true);
     expect(applyAction(s, "p1", { type: "rotateTile", row: 3, col: 3, rotation: 2 }).ok).toBe(false);
     expect(applyAction(s, "p1", { type: "rotateTile", row: 0, col: 0, rotation: 2 }).ok).toBe(false);
+  });
+  // Zach's production game: entry (1,0) cross, (1,1) tee, (1,2) corner turned west-north, standing on (0,2), a corner.
+  const zach = () => patch(newGame(), (x) => {
+    for (const [r, c, t] of [[1, 0, "cross"], [1, 1, "tee"], [1, 2, "corner"], [0, 2, "corner"]] as const) x.mazeTiles[r * 4 + c] = t;
+    x.players[0]!.maze = { "1:0": 0, "1:1": 3 /* W|N|E */, "1:2": 3 /* W|N */, "0:2": 2 /* S|W */ };
+    x.players[0]!.pos = "m:0:2";
+  });
+  it("a re-turn can't cut you off from the maze entrance", () => {
+    expect(openings("corner", 3)).toBe(W | N);
+    // North-east opens toward the lair but closes the way back south: refused.
+    const cut = applyAction(zach(), "p1", { type: "rotateTile", row: 0, col: 2, rotation: 0 });
+    expect(cut).toMatchObject({ ok: false });
+    expect(!cut.ok && cut.error).toContain("cut you off");
+    // South-east keeps the way back and opens the way on: allowed.
+    expect(openings("corner", 1)).toBe(E | S);
+    expect(applyAction(zach(), "p1", { type: "rotateTile", row: 0, col: 2, rotation: 1 }).ok).toBe(true);
+  });
+  it("nor can re-turning a tile behind you", () => {
+    // Standing on (0,2), turning (1,2) so it no longer opens north cuts the route back.
+    expect(applyAction(zach(), "p1", { type: "rotateTile", row: 1, col: 2, rotation: 1 }).ok).toBe(false);
+  });
+  it("from the maze square the entry tile can be turned any way (you aren't inside)", () => {
+    const s = patch(zach(), (x) => { x.players[0]!.pos = "maze"; });
+    for (const rotation of [0, 1, 2, 3]) expect(applyAction(s, "p1", { type: "rotateTile", row: 1, col: 0, rotation }).ok).toBe(true);
+  });
+  it("Zach's boxed-in maze from production: a hint is offered and the bot gets out without cutting itself off", () => {
+    let s = patch(newGame(), (x) => {
+      x.mazeTiles = "cross,corner,corner,straight,cross,tee,corner,tee,straight,corner,dead,tee,tee,dead,tee,straight".split(",") as typeof x.mazeTiles;
+      x.players[0]!.maze = { "1:0": 0, "1:1": 3, "1:2": 2, "2:2": 0, "0:1": 1, "0:2": 2, "2:0": 0, "3:0": 0, "3:1": 3, "0:0": 0 };
+      x.players[0]!.pos = "m:2:0";
+      x.combination = [1, 2, 3];
+      for (const k of [1, 2, 3, 4, 5, 6, 7]) removeKey(x, k);
+      x.players[0]!.keys = [1, 2, 3, 4, 5, 6, 7]; // so the bot wants the lair
+    });
+    expect(mazeHint(playerView(s, "p1"))).not.toBeNull();
+    for (let i = 0; i < 400 && s.players[0]!.pos !== "lair" && s.phase !== "finished"; i++) {
+      const actor = s.players[s.currentIndex]!.id;
+      s = act(s, actor, botAction(playerView(s, actor)));
+      expect(checkInvariants(s).filter((e) => e.includes("cut off"))).toEqual([]);
+    }
+    expect(s.players[0]!.pos === "lair" || s.winner === "p1").toBe(true);
   });
   it("crossing the east edge reaches the lair and starts the duel", () => {
     let s = patch(newGame(), (x) => {

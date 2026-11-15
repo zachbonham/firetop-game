@@ -1,5 +1,5 @@
 import { BOARD, isMazeTile } from "./board.js";
-import { MAZE_SIZE } from "./maze.js";
+import { MAZE_SIZE, reachableInMaze } from "./maze.js";
 import type { GameState } from "./types.js";
 
 /** Returns a list of broken invariants (empty = healthy). Used by tests and sims. */
@@ -29,6 +29,9 @@ export function checkInvariants(s: GameState): string[] {
       const key = p.pos.slice(2);
       const flipping = s.pendingFlip && s.players[s.currentIndex] === p && `${s.pendingFlip.row}:${s.pendingFlip.col}` === key;
       if (!(key in p.maze) && !flipping) errors.push(`${p.id} stands on a tile they haven't revealed`);
+      if (!flipping && p.status === "active" && !reachableInMaze(s.mazeTiles, p.maze).has(key)) {
+        errors.push(`${p.id} is cut off from the maze entrance at ${key}`);
+      }
     } else if (!BOARD.squares[p.pos]) {
       errors.push(`${p.id} on unknown square ${p.pos}`);
     }

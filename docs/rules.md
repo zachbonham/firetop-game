@@ -82,6 +82,14 @@ the camp, once you have reached it — with half Stamina, and miss your next tur
 - **Re-turn a tile** instead of rolling: the tile you're on or a revealed tile next to it (from
   the maze square: the entry tile). *Added in M1: without it, a badly turned tile could strand a
   player.*
+- **You can never cut yourself off** (rules v4). While you're inside the maze, a re-turn must
+  leave you a way back to the maze entrance through your own tiles. That covers the tile you
+  stand on and the tiles around it. Together with the flip rule (a new tile must open toward
+  where you came from), it means you can always walk back the way you came, and after fleeing
+  or a defeat you can walk your own route back to where you were. From the maze square, outside
+  the maze, the entry tile can still be turned any way.
+- **Boxed in?** If no open path from your revealed tiles leads anywhere new, the game says so
+  and suggests a tile to re-turn, or where to walk first. It uses the same planner as the bots.
 
 ## Wizard and chest
 - Entering the lair starts a duel with the wizard (Skill 9, Stamina 12, tuned in rules v3), at full
