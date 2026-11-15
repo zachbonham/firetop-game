@@ -120,7 +120,7 @@ export function Board(p: Props) {
     const clickable = !!p.onRoomClick && !!enc;
     return (
       <g key={room} className={`room${cleared ? " cleared" : ""}${clickable ? " clickable" : ""}`} onClick={clickable ? () => p.onRoomClick!(room) : undefined} data-room={room}>
-        <rect x={x0} y={c.y - 22} width={x1 - x0} height={44} rx={12} className="chamber" filter="url(#rough)" />
+        <rect x={x0} y={c.y - 22} width={x1 - x0} height={44} rx={12} className="chamber rough" />
         <rect x={x0 + 4} y={c.y - 18} width={x1 - x0 - 8} height={36} rx={9} className="chamber-floor" />
         <g className="plaque">
           <rect x={c.x - 15} y={c.y - 33} width={30} height={14} rx={3} />
@@ -149,7 +149,7 @@ export function Board(p: Props) {
         <circle cx={pt.x} cy={pt.y} r={big ? 26 : 14} fill="transparent" />
         {big ? (
           <>
-            <circle cx={pt.x} cy={pt.y} r={21} className={cls} filter="url(#rough)" />
+            <circle cx={pt.x} cy={pt.y} r={21} className={`${cls} rough`} />
             <Icon name={big.icon} x={pt.x} y={pt.y} size={26} color="#d9cfa8" />
             <text x={pt.x} y={pt.y + (id === "lair" ? 40 : -28)} className="big-label">{big.label}</text>
           </>
@@ -206,7 +206,7 @@ export function Board(p: Props) {
         return <line key={r} x1={t.x + TILE / 2} y1={t.y} x2={LAIR_POS.x} y2={LAIR_POS.y} className="corridor exit" />;
       })}
       {roomBoxes}
-      <rect x={MAZE_ORIGIN.x - 6} y={MAZE_ORIGIN.y - 6} width={mazeW + 12} height={mazeW + 12} rx={8} className="maze-frame" filter="url(#rough)" />
+      <rect x={MAZE_ORIGIN.x - 6} y={MAZE_ORIGIN.y - 6} width={mazeW + 12} height={mazeW + 12} rx={8} className="maze-frame rough" />
       {squares}
       <g className="maze">{tiles}</g>
       {Object.entries(dropped).map(([node, keys]) => {
