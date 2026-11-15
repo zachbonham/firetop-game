@@ -3,7 +3,7 @@
 Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.md and docs/.
 
 ## Conventions
-- TypeScript everywhere, npm workspaces (`packages/*`), Node 20+, ESM, strict TS with
+- TypeScript everywhere, npm workspaces (`packages/*`), Node 22.13+ (server needs `node:sqlite`), ESM, strict TS with
   `noUncheckedIndexedAccess`.
 - `packages/engine` is pure: no I/O, no Date.now(), no Math.random(). All randomness via the
   seeded `Rng` whose state lives in `GameState.rng`. `applyAction` must never mutate its input.
@@ -15,7 +15,11 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
 - Keep docs/rules.md in sync with what the engine actually does.
 - Bump `RULES_VERSION` (config.ts) whenever a change would make an old action log replay
   differently (rules, setup randomization, board). Bot changes don't need a bump. Saves refuse
-  other versions.
+  other versions, and so does the server (a stored game under other rules gets a 410).
+- Server (`packages/server`): game state is never stored, only setup + action log (bot moves are
+  logged like any other action, so replays don't depend on the bot). Every response with game
+  data is built from `playerView` for the seat the bearer token belongs to; never take an actor
+  id from the client. Seat tokens are stored only as sha256 hashes.
 
 ## Commands
 - `npm test`, `npm run typecheck`, `npm run build`, `npm run sim -- <games> [--config overrides.json]`
@@ -25,4 +29,8 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
   final state, stats and the full log. Local games autosave to `playtests/autosave/` (gitignored).
 - `npm run dev`: local hot-seat test board (packages/client, Vite). It imports the engine
   source directly via an alias, so rule edits hot-reload; it only talks to the engine through
-  `createGame` / `applyAction` / `playerView` / `botAction`, like the future server will.
+  `createGame` / `applyAction` / `playerView` / `botAction`, like the server does.
+- `npm run server`: game server (packages/server, Fastify + `node:sqlite`, run with `tsx watch`,
+  engine source via a tsconfig `paths` alias). Env: `FIRETOP_DB` (default `data/firetop.db`,
+  gitignored), `PORT` (3000), `HOST` (127.0.0.1), `PUBLIC_URL` (invite link prefix). Its
+  `build` script is a typecheck only; bundling is left to deploy (M6).
