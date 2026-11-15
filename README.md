@@ -37,6 +37,32 @@ npm run replay -- playtests/autosave/<file>.json  # print a saved game in full
 npm run server      # game server at http://127.0.0.1:3000 (data in data/firetop.db)
 ```
 
+## Online client
+
+Play over the network against the server (M3/M4). For local development, run both:
+
+```bash
+npm run server   # API on http://localhost:3000 (data/firetop.db)
+npm run dev      # client on http://localhost:5173; Vite proxies /api to the server
+```
+
+- **`/online`:** start a game. Pick 2–4 seats (people or bots), heroes and the time per turn (1h,
+  12h, 24h or 3 days). You get one invite link per person, `/play/<game>#<seat token>`. Anyone
+  with a link plays that seat. This device keeps the first seat, and the page lists your games.
+- **`/play/<game>`:** the game, drawn only from your own player view.
+  - Opening an invite link saves its token on the device (localStorage) and removes it from the
+    address bar.
+  - The page waits on the server for other players' moves (long-poll) and shows whose turn it
+    is and when it times out.
+  - Your own actions pop up encounter cards.
+  - Abandoned, finished and removed-from-the-game states each show a banner.
+  - If someone moves first (`409 stale_seq`), you get the fresh board and a note to try again.
+- **One seat per game per browser:** a device holds one seat per game. To test two seats on
+  one machine, use a second browser profile, or open the other link last and don't reload the
+  first tab.
+- **Local test board:** still at `/`. The board component draws from a player view alone, or
+  from the full state for the god view.
+
 ## Board art and phone layout (M5)
 
 - **Art:** the board, maze tiles, tokens, icons and encounter cards are original generated SVG.

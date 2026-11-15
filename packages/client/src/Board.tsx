@@ -10,11 +10,15 @@ import { encounterLabel, seatColor } from "./describe.js";
 import { Icon, type IconName } from "./art/icons.js";
 
 interface Props {
-  state: GameState;
-  /** What the viewer may see. null = god view (draw from the full state). */
+  /**
+   * What the viewer may see; the board draws from this alone (that's all an
+   * online client has). null = god view: draw from `state` instead.
+   */
   view: PlayerView | null;
-  /** Whose maze tiles to draw (viewer, or the current player in god view). */
-  mazeOf: string | null;
+  /** The full state: only needed (and only read) for the god view. */
+  state?: GameState;
+  /** God view only: whose maze tiles to draw. */
+  mazeOf?: string | null;
   moveTargets: Set<NodeId>;
   selected: NodeId | null;
   selectedTile: string | null;
@@ -40,16 +44,45 @@ const BIG: Record<string, { icon: IconName; label: string }> = {
   lair: { icon: "lair", label: "Lair" },
 };
 
+/** A maze tile as the board should draw it. */
+interface TileInfo {
+  /** Known tile type (revealed, being flipped, or god view). */
+  type: TileType | null;
+  /** The owner's rotation, if they have revealed it. */
+  rotation: number | undefined;
+  flipping: boolean;
+}
+
 export function Board(p: Props) {
   const god = p.view === null;
+  const state = p.state;
+  if (god && !state) throw new Error("Board: the god view needs the full state");
   const rooms = god ? null : p.view!.rooms;
   const players = god
-    ? p.state.players.map((pl) => ({ id: pl.id, name: pl.name, pos: pl.pos, status: pl.status }))
+    ? state!.players.map((pl) => ({ id: pl.id, name: pl.name, pos: pl.pos, status: pl.status }))
     : p.view!.players.map((pl) => ({ id: pl.id, name: pl.name, pos: pl.pos, status: pl.status }));
-  const dropped = god ? p.state.dropped : p.view!.dropped;
-  const mazeOwner = p.state.players.find((x) => x.id === p.mazeOf);
-  const flip = p.state.pendingFlip && p.state.players[p.state.currentIndex]?.id === p.mazeOf ? p.state.pendingFlip : null;
-  const currentId = p.state.players[p.state.currentIndex]?.id;
+  const dropped = god ? state!.dropped : p.view!.dropped;
+  const currentId = god ? state!.players[state!.currentIndex]?.id : p.view!.currentPlayerId;
+
+  const tileInfo: (r: number, c: number) => TileInfo = god
+    ? (() => {
+      const owner = state!.players.find((x) => x.id === p.mazeOf);
+      const flip = state!.pendingFlip && currentId === p.mazeOf ? state!.pendingFlip : null;
+      return (r, c) => ({
+        type: state!.mazeTiles[r * MAZE_SIZE + c]!,
+        rotation: owner?.maze[`${r}:${c}`],
+        flipping: !!flip && flip.row === r && flip.col === c,
+      });
+    })()
+    : (() => {
+      const mine = new Map((p.view!.me?.maze ?? []).map((t) => [`${t.row}:${t.col}`, t]));
+      const flip = p.view!.me?.pendingFlip;
+      return (r, c) => {
+        const t = mine.get(`${r}:${c}`);
+        const flipping = !!flip && flip.row === r && flip.col === c;
+        return { type: t?.type ?? (flipping ? flip!.type : null), rotation: t?.rotation, flipping };
+      };
+    })();
 
   // Group player tokens by node.
   const byNode = new Map<NodeId, { id: string; name: string; idx: number }[]>();
@@ -70,12 +103,12 @@ export function Board(p: Props) {
     const xs = squares.map((s) => s.x);
     const x0 = Math.min(...xs) - 20, x1 = Math.max(...xs) + 20;
     const c = ROOM_LABEL_POS[room]!;
-    const real = p.state.rooms[room]!;
+    const real = god ? state!.rooms[room]! : null;
     const pub = rooms?.[room];
-    const cleared = god ? real.cleared : pub!.cleared;
+    const cleared = real ? real.cleared : pub!.cleared;
     let enc: AnyEncounter | null = null;
     let secret = false;
-    if (god) {
+    if (real) {
       enc = real.encounter;
       secret = !real.revealed;
     } else if (pub!.revealed && pub!.encounter) enc = pub!.encounter;
@@ -133,9 +166,7 @@ export function Board(p: Props) {
     for (let c = 0; c < MAZE_SIZE; c++) {
       const key = `${r}:${c}`;
       const id = `m:${r}:${c}`;
-      const rot = mazeOwner?.maze[key];
-      const flipping = flip && flip.row === r && flip.col === c;
-      const type = p.state.mazeTiles[r * MAZE_SIZE + c]!;
+      const { type, rotation: rot, flipping } = tileInfo(r, c);
       const showType: TileType | null = rot !== undefined || flipping || god ? type : null;
       const target = p.moveTargets.has(id);
       const facedown = rot === undefined && !flipping;

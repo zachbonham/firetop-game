@@ -9,7 +9,8 @@ import { describeNode, sideName } from "./describe.js";
 interface Props {
   view: PlayerView;
   onAction: (a: Action) => void;
-  onBotTurn: () => void;
+  /** Local test board only: let the scripted bot pick this step. */
+  onBotTurn?: () => void;
   selectedTo: NodeId | null;
   setSelectedTo: (id: NodeId | null) => void;
   selectedTile: string | null;
@@ -174,6 +175,7 @@ function ItemActions({ view, onAction }: { view: PlayerView; onAction: (a: Actio
 }
 
 function BotButton(p: Props) {
+  if (!p.onBotTurn) return null;
   return (
     <p>
       <button className="link" onClick={p.onBotTurn} title="Apply the scripted bot's choice for this step">
