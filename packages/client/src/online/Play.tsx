@@ -52,12 +52,17 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
   const boardRef = useRef<HTMLDivElement>(null);
   const latest = useRef<GameResponse | null>(null);
 
-  /** Keep only the newest response (a long-poll and an action can cross). */
+  /**
+   * Keep only the newest response (a long-poll and an action can cross). Every
+   * change to a game adds to its log, so a response at the seq we already show
+   * is the same game: skip it rather than redraw the whole board (each action
+   * comes back twice, from the POST and from the long-poll it wakes).
+   */
   const accept = useCallback((r: GameResponse) => {
-    if (latest.current && r.seq < latest.current.seq) return;
+    setOffline(false);
+    if (latest.current && r.seq <= latest.current.seq) return;
     latest.current = r;
     setGame(r);
-    setOffline(false);
   }, []);
 
   // Load, then long-poll for other players' moves for as long as the page is open.

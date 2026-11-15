@@ -83,6 +83,10 @@ code.diff { color: var(--muted); font-size: 12px; word-break: break-all; }
 
 /* Board SVG (M5 art) */
 .board { width: 100%; height: auto; display: block; background: #1a1612; border-radius: 10px; user-select: none; -webkit-tap-highlight-color: transparent; }
+/* Hand-drawn edges (feTurbulence). Phones re-run the noise on every repaint of the
+   zoomed board and stall for seconds, so they get plain edges. */
+.rough { filter: url(#rough); }
+@media (max-width: 820px), (pointer: coarse) { .rough { filter: none; } }
 .mountain path { fill: #121016; opacity: 0.55; }
 .mountain .snow { fill: #cfcbd8; opacity: 0.5; }
 .corridor { stroke: #4e4234; stroke-width: 9; stroke-linecap: round; }

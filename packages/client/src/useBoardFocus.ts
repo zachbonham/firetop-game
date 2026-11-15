@@ -16,8 +16,17 @@ export function useBoardFocus(wrapRef: RefObject<HTMLElement | null>, node: stri
       wrap.scrollTo({ left: wrap.scrollLeft + r.left + r.width / 2 - (w.left + w.width / 2), behavior: "smooth" });
     };
     centre();
-    window.addEventListener("resize", centre);
-    return () => window.removeEventListener("resize", centre);
+    // Phones fire `resize` whenever the address bar slides in or out while scrolling. Re-centring
+    // then yanks the board away from the player's finger, so only a real width change (rotation)
+    // counts.
+    let width = window.innerWidth;
+    const onResize = () => {
+      if (window.innerWidth === width) return;
+      width = window.innerWidth;
+      centre();
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node, ...deps]);
 }
