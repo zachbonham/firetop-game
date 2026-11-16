@@ -1,11 +1,9 @@
-# Deploy to Fly.io on every push to main, after CI passes (M6). Off until the repository variable
-# FLY_DEPLOY is "true", so it can't fail before the Fly app exists.
+# Deploy to Fly.io on every push to main, after CI passes (M6). This is main's only CI run.
 #
 # One-time setup (docs/deploy.md):
 #   1. fly tokens create deploy -a firetop-zb
 #   2. GitHub: Settings → Environments → "production": add the token as secret FLY_API_TOKEN
 #      (optionally require a reviewer to approve each deploy).
-#   3. GitHub: Settings → Variables → Actions: FLY_DEPLOY = true
 # App secrets (the Tigris keys) stay on Fly; this workflow never sees them.
 #
 # The schema only changes additively (db.ts migrate()), and every deploy snapshots the volume
@@ -30,7 +28,6 @@ env:
 
 jobs:
   ci:
-    if: vars.FLY_DEPLOY == 'true'
     uses: ./.github/workflows/ci.yml
 
   deploy:

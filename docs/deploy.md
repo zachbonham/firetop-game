@@ -17,8 +17,8 @@ credentials and data apart.
 | `start.sh` | Runs the server under `litestream replicate -exec` when `BUCKET_NAME` is set. Otherwise it runs the server alone, e.g. with a local `docker run`. |
 | `litestream.yml` | Replicates `/data/firetop.db` to `s3://$BUCKET_NAME/firetop.db`. A fresh volume restores from the backup on first start. |
 | `fly.toml` | One `shared-cpu-1x` / 256 MB machine. The volume is mounted at `/data`, with the `/api/health` check, HTTPS only, and auto stop/start. |
-| `.github/workflows/ci.yml` | Typecheck, test and build on every push and pull request. |
-| `.github/workflows/deploy.yml` | On push to `main`: CI, then snapshot the volume, `fly deploy`, and check that `/api/health` reports the new commit. Off until the variable `FLY_DEPLOY=true`. |
+| `.github/workflows/ci.yml` | Typecheck, test and build on every pull request, and for the deploy workflow. |
+| `.github/workflows/deploy.yml` | On push to `main`: CI, then snapshot the volume, `fly deploy`, and check that `/api/health` reports the new commit. |
 | `.github/workflows/backup-check.yml` | Weekly: restore the latest backup on the runner and run `integrity_check`. Off until the variable `BACKUP_CHECK=true`. |
 
 In production the server serves the client itself, from the same origin, so `/` is the online
@@ -53,7 +53,6 @@ To deploy from GitHub on every merge:
 1. Run `fly tokens create deploy -a firetop-zb`.
 2. In the GitHub repo, go to **Settings → Environments → production** and add the token as the
    secret `FLY_API_TOKEN`. You can also require a reviewer to approve each deploy.
-3. Go to **Settings → Variables → Actions** and set `FLY_DEPLOY` to `true`.
 
 To turn on the weekly backup drill:
 1. Create a **read-only** access key for the `firetop-zb-backups` bucket in the Tigris console.
