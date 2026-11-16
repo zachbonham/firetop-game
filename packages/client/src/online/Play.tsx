@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ITEM_NAMES, candidateCombos, type Action, type NodeId, type PlayerView } from "@firetop/engine";
 import { ActionPanel, attackable } from "../ActionPanel.js";
 import { Board } from "../Board.js";
-import { CardPopup, Portrait, cardsBetween, roomCard, sinceMyLastTurn, type CardData } from "../Cards.js";
-import { describeNode, seatColor } from "../describe.js";
-import { useBoardFocus } from "../useBoardFocus.js";
+import { CardPopup, Portrait, Vitals, cardsBetween, roomCard, sinceMyLastTurn, type CardData } from "../Cards.js";
+import { MazeTurned, describeNode, seatColor } from "../describe.js";
+import { PORTRAIT } from "../layout.js";
+import { useBoardFocus, useIsPhone } from "../useBoardFocus.js";
 import { ApiError, api, type GameResponse, type StartedGame } from "./api.js";
 import { WaitingRoom } from "./WaitingRoom.js";
 import { parsePlayUrl, saveSeat, seatFor, timeLeft } from "./tokens.js";
@@ -49,6 +50,9 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
   const [selectedTo, setSelectedTo] = useState<NodeId | null>(null);
   const [selectedTile, setSelectedTile] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState(true);
+  // Phones get the portrait board with everything else in a sheet under it.
+  const phone = useIsPhone();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const boardRef = useRef<HTMLDivElement>(null);
   const latest = useRef<GameResponse | null>(null);
@@ -110,7 +114,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
     setSelectedTo(null);
     setSelectedTile(null);
   }, [game?.seq]);
-  useBoardFocus(boardRef, view?.me?.pos ?? null, [zoomed, game?.seq]);
+  useBoardFocus(boardRef, view?.me?.pos ?? null, [zoomed, phone, game?.seq]);
 
   const send = async (action: Action) => {
     if (!game?.view || busy) return;
@@ -151,9 +155,35 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
     if (peek) setCards([roomCard(room, peek, { secret: true })]);
   };
   const winner = view.players.find((p) => p.id === view.winner);
+  const news = game.status === "active" ? sinceMyLastTurn(view).length : 0;
+  const actions = myTurn ? (
+    // The tile pickers must match the board: on phones the maze is drawn turned.
+    <MazeTurned.Provider value={phone}>
+      <ActionPanel
+        view={view}
+        onAction={(a) => void send(a)}
+        selectedTo={selectedTo}
+        setSelectedTo={setSelectedTo}
+        selectedTile={selectedTile}
+        setSelectedTile={setSelectedTile}
+      />
+    </MazeTurned.Provider>
+  ) : game.status === "active" && current ? (
+    <div className="actions waiting">
+      <p>Waiting for <b>{current.name}</b>{game.seats.find((s) => s.playerId === current.id)?.bot ? " (bot)" : ""}.</p>
+      <p className="hint">This page updates by itself. You can close it and come back with the same link.</p>
+    </div>
+  ) : null;
+  const details = (
+    <>
+      <Players game={game as StartedGame} onSettings={(settings) => void send({ type: "setSettings", settings })} />
+      <Chest view={view} />
+      <Log view={view} />
+    </>
+  );
 
   return (
-    <div className="game online">
+    <div className={`game online${phone ? " shell" : ""}`}>
       <header className="topbar">
         <a href="/online" className="home" title="Your games">⛰</a>
         <b>Turn {view.turn}</b>
@@ -187,31 +217,32 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
               onNodeClick={onNodeClick}
               onTileClick={(r, c) => { if (myTurn && view.phase === "roll") setSelectedTile(`${r}:${c}`); }}
               onRoomClick={onRoomClick}
+              {...(phone ? { layout: PORTRAIT } : {})}
             />
           </div>
         </div>
 
-        <aside className="side">
-          {game.status === "active" && <Recent view={view} myTurn={myTurn} />}
-          {myTurn ? (
-            <ActionPanel
-              view={view}
-              onAction={(a) => void send(a)}
-              selectedTo={selectedTo}
-              setSelectedTo={setSelectedTo}
-              selectedTile={selectedTile}
-              setSelectedTile={setSelectedTile}
-            />
-          ) : game.status === "active" && current ? (
-            <div className="actions waiting">
-              <p>Waiting for <b>{current.name}</b>{game.seats.find((s) => s.playerId === current.id)?.bot ? " (bot)" : ""}.</p>
-              <p className="hint">This page updates by itself. You can close it and come back with the same link.</p>
-            </div>
-          ) : null}
-          <Players game={game as StartedGame} onSettings={(settings) => void send({ type: "setSettings", settings })} />
-          <Chest view={view} />
-          <Log view={view} />
-        </aside>
+        {phone ? (
+          <aside className={`side sheet${sheetOpen ? " open" : ""}`}>
+            <button className="sheet-handle" aria-expanded={sheetOpen} onClick={() => setSheetOpen(!sheetOpen)}>
+              {sheetOpen ? "▼ Back to the board" : `▲ Players, chest & log${news ? ` · ${news} new` : ""}`}
+            </button>
+            <Vitals player={me} color={seatColor(view.players.indexOf(me))} />
+            {actions}
+            {sheetOpen && (
+              <>
+                {game.status === "active" && <Recent view={view} myTurn={myTurn} />}
+                {details}
+              </>
+            )}
+          </aside>
+        ) : (
+          <aside className="side">
+            {game.status === "active" && <Recent view={view} myTurn={myTurn} />}
+            {actions}
+            {details}
+          </aside>
+        )}
       </div>
     </div>
   );

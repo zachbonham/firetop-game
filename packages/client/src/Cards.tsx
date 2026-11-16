@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import {
   ITEM_NAMES,
-  type Archetype, type Encounter, type GameEvent, type PeekedEncounter, type PlayerView, type PublicEncounter,
+  type Archetype, type Encounter, type GameEvent, type PeekedEncounter, type PlayerView, type PublicEncounter, type PublicPlayer,
 } from "@firetop/engine";
 import { ARCHETYPE_ICON, IconSvg, type IconName } from "./art/icons.js";
 import { artUrl, type ArtKind } from "./art/slots.js";
@@ -187,6 +187,27 @@ export function CardPopup({ cards, onClose }: { cards: CardData[]; onClose: () =
 }
 
 /** A player's portrait: provided art, or a generated emblem in their seat colour. */
+/**
+ * One player's vital stats in a single line: Stamina as a bar, then Skill, Luck
+ * and keys. Sits at the top of the phone sheet so your health is always in view.
+ */
+export function Vitals({ player, color }: { player: PublicPlayer; color: string }) {
+  const frac = player.maxStamina > 0 ? Math.max(0, Math.min(1, player.stamina / player.maxStamina)) : 0;
+  const level = frac > 0.5 ? "ok" : frac > 0.25 ? "low" : "danger";
+  return (
+    <div className="vitals" aria-label={`${player.name}: Stamina ${player.stamina} of ${player.maxStamina}, Skill ${player.skill}, Luck ${player.luck}`}>
+      <Portrait archetype={player.archetype} color={color} size={28} />
+      <div className="vitals-stamina">
+        <div className={`bar ${level}`}><span style={{ width: `${frac * 100}%` }} /></div>
+        <small><b>{player.stamina}</b>/{player.maxStamina} Stamina</small>
+      </div>
+      <span className="vitals-stat"><b>{player.skill}</b> Skill</span>
+      <span className="vitals-stat"><b>{player.luck}</b> Luck</span>
+      <span className="vitals-stat">🔑 <b>{player.keys.length ? [...player.keys].sort((a, b) => a - b).join(" ") : "–"}</b></span>
+    </div>
+  );
+}
+
 export function Portrait({ archetype, color, size = 34 }: { archetype: Archetype; color: string; size?: number }) {
   const url = artUrl("portraits", archetype);
   return (
