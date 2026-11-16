@@ -1,9 +1,8 @@
-# Typecheck, test and build on every push and pull request. The deploy workflow reuses it.
+# Typecheck, test and build on every pull request. Merges to main run it through the deploy
+# workflow (workflow_call), which deploys only if it passes, so it isn't triggered on push here too.
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_call:
 
