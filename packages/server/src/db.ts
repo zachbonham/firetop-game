@@ -26,6 +26,8 @@ export interface GameRow {
   deadline: string | null;
   /** Bumped by every change that isn't an action: a seat claimed, the game started. */
   lobbyRev: number;
+  /** Last change of any kind (ISO): an action, a seat claimed, the start. Retention counts from here. */
+  updatedAt: string;
 }
 
 export interface SeatRow {
@@ -49,6 +51,16 @@ export interface ActionRow {
   action: Action;
 }
 
+/** Purge cutoffs (ISO times), one per kind of game the retention policy deletes. */
+export interface RetentionCutoffs {
+  /** Finished or abandoned games last changed before this. */
+  ended: string;
+  /** Lobbies (never started) last changed before this. */
+  waiting: string;
+  /** Games stored under other rules (unplayable, a 410), whatever their status. */
+  otherRules: string;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS games (
   id            TEXT PRIMARY KEY,
@@ -59,7 +71,8 @@ CREATE TABLE IF NOT EXISTS games (
   created_at    TEXT NOT NULL,
   turn_seconds  INTEGER NOT NULL DEFAULT 86400,
   deadline      TEXT,
-  lobby_rev     INTEGER NOT NULL DEFAULT 0
+  lobby_rev     INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT
 );
 CREATE TABLE IF NOT EXISTS seats (
   game_id    TEXT NOT NULL REFERENCES games(id),
@@ -99,9 +112,17 @@ export class Db {
     if (!cols.has("turn_seconds")) this.db.exec("ALTER TABLE games ADD COLUMN turn_seconds INTEGER NOT NULL DEFAULT 86400");
     if (!cols.has("deadline")) this.db.exec("ALTER TABLE games ADD COLUMN deadline TEXT");
     if (!cols.has("lobby_rev")) this.db.exec("ALTER TABLE games ADD COLUMN lobby_rev INTEGER NOT NULL DEFAULT 0");
+    if (!cols.has("updated_at")) {
+      this.db.exec("ALTER TABLE games ADD COLUMN updated_at TEXT");
+      // Older files: the last logged action, or the creation time for games with no log.
+      this.db.exec(
+        "UPDATE games SET updated_at = COALESCE((SELECT MAX(created_at) FROM actions WHERE actions.game_id = games.id), created_at)",
+      );
+    }
     const seatCols = new Set(this.db.prepare("PRAGMA table_info(seats)").all().map((r) => String(r.name)));
     if (!seatCols.has("seat_status")) this.db.exec("ALTER TABLE seats ADD COLUMN seat_status TEXT NOT NULL DEFAULT 'claimed'");
     this.db.exec("CREATE INDEX IF NOT EXISTS games_due ON games (status, deadline)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS games_updated ON games (status, updated_at)");
   }
 
   close(): void {
@@ -124,8 +145,8 @@ export class Db {
   insertGame(game: GameRow, seats: SeatRow[]): void {
     this.transaction(() => {
       this.db
-        .prepare("INSERT INTO games (id, seed, config, rules_version, status, created_at, turn_seconds, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(game.id, game.seed, JSON.stringify(game.config), game.rulesVersion, game.status, game.createdAt, game.turnSeconds, game.deadline);
+        .prepare("INSERT INTO games (id, seed, config, rules_version, status, created_at, turn_seconds, deadline, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(game.id, game.seed, JSON.stringify(game.config), game.rulesVersion, game.status, game.createdAt, game.turnSeconds, game.deadline, game.updatedAt);
       const ins = this.db.prepare(
         "INSERT INTO seats (game_id, seat_index, player_id, name, archetype, is_bot, token_hash, seat_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
@@ -146,6 +167,7 @@ export class Db {
       turnSeconds: Number(r.turn_seconds),
       deadline: r.deadline === null ? null : String(r.deadline),
       lobbyRev: Number(r.lobby_rev),
+      updatedAt: r.updated_at === null ? String(r.created_at) : String(r.updated_at),
     };
   }
 
@@ -177,34 +199,75 @@ export class Db {
   }
 
   /** Status and turn deadline after a commit (call inside `transaction`). */
-  setTurn(gameId: string, status: GameRow["status"], deadline: string | null): void {
-    this.db.prepare("UPDATE games SET status = ?, deadline = ? WHERE id = ?").run(status, deadline, gameId);
+  setTurn(gameId: string, status: GameRow["status"], deadline: string | null, now: string): void {
+    this.db.prepare("UPDATE games SET status = ?, deadline = ?, updated_at = ? WHERE id = ?").run(status, deadline, now, gameId);
   }
 
   /** A player claims their invited seat, or changes their name or hero, while the game is waiting. */
-  claimSeat(gameId: string, playerId: string, name: string, archetype: Archetype): void {
+  claimSeat(gameId: string, playerId: string, name: string, archetype: Archetype, now: string): void {
     this.transaction(() => {
       this.db
         .prepare("UPDATE seats SET name = ?, archetype = ?, seat_status = 'claimed' WHERE game_id = ? AND player_id = ?")
         .run(name, archetype, gameId, playerId);
-      this.db.prepare("UPDATE games SET lobby_rev = lobby_rev + 1 WHERE id = ?").run(gameId);
+      this.db.prepare("UPDATE games SET lobby_rev = lobby_rev + 1, updated_at = ? WHERE id = ?").run(now, gameId);
     });
   }
 
   /** Start a waiting game: seats still open are dropped and the turn clock starts. */
-  startGame(gameId: string, deadline: string): void {
+  startGame(gameId: string, deadline: string, now: string): void {
     this.transaction(() => {
       this.db.prepare("UPDATE seats SET seat_status = 'dropped' WHERE game_id = ? AND seat_status = 'open'").run(gameId);
-      this.db.prepare("UPDATE games SET status = 'active', deadline = ?, lobby_rev = lobby_rev + 1 WHERE id = ?").run(deadline, gameId);
+      this.db
+        .prepare("UPDATE games SET status = 'active', deadline = ?, lobby_rev = lobby_rev + 1, updated_at = ? WHERE id = ?")
+        .run(deadline, now, gameId);
     });
   }
 
-  /** Active games whose turn deadline is at or before `now` (ISO strings compare in time order). */
-  dueGames(now: string, limit = 100): string[] {
+  /**
+   * Active games under `rulesVersion` whose turn deadline is at or before `now` (ISO strings
+   * compare in time order). Games under other rules can't be replayed, so they'd only use up the limit.
+   */
+  dueGames(now: string, rulesVersion: number, limit = 100): string[] {
     return this.db
-      .prepare("SELECT id FROM games WHERE status = 'active' AND deadline IS NOT NULL AND deadline <= ? ORDER BY deadline LIMIT ?")
-      .all(now, limit)
+      .prepare(
+        "SELECT id FROM games WHERE status = 'active' AND rules_version = ? AND deadline IS NOT NULL AND deadline <= ? ORDER BY deadline LIMIT ?",
+      )
+      .all(rulesVersion, now, limit)
       .map((r) => String(r.id));
+  }
+
+  /**
+   * Delete the games the retention policy no longer keeps, with their seats and logs, at
+   * most `limit` per call so the write lock is held briefly. Returns the ids deleted.
+   * Each cutoff is an ISO time: a game whose last change is before it goes.
+   */
+  purgeGames(cutoffs: RetentionCutoffs, rulesVersion: number, limit = 500): string[] {
+    return this.transaction(() => {
+      const ids = this.db
+        .prepare(
+          `SELECT id FROM games WHERE
+             (rules_version = ? AND status IN ('finished', 'abandoned') AND updated_at < ?)
+          OR (rules_version = ? AND status = 'waiting' AND updated_at < ?)
+          OR (rules_version <> ? AND updated_at < ?)
+          LIMIT ?`,
+        )
+        .all(rulesVersion, cutoffs.ended, rulesVersion, cutoffs.waiting, rulesVersion, cutoffs.otherRules, limit)
+        .map((r) => String(r.id));
+      const delActions = this.db.prepare("DELETE FROM actions WHERE game_id = ?");
+      const delSeats = this.db.prepare("DELETE FROM seats WHERE game_id = ?");
+      const delGame = this.db.prepare("DELETE FROM games WHERE id = ?");
+      for (const id of ids) {
+        delActions.run(id);
+        delSeats.run(id);
+        delGame.run(id);
+      }
+      return ids;
+    });
+  }
+
+  /** Tests only: move a game's last change, e.g. to age it past the retention window. */
+  setUpdatedAt(gameId: string, iso: string): void {
+    this.db.prepare("UPDATE games SET updated_at = ? WHERE id = ?").run(iso, gameId);
   }
 
   /** Tests only: pretend a game was stored under other rules. */

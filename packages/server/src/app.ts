@@ -15,6 +15,8 @@ export interface ServerOptions extends StoreOptions {
   logger?: boolean;
   /** How often to time out overdue turns (ms). Default 60 000; 0 turns the sweeper off. */
   sweepIntervalMs?: number;
+  /** How often to delete games past their retention window (ms). Default 1 hour; 0 turns it off. */
+  purgeIntervalMs?: number;
   /** Built client to serve at / (production). Unset in dev, where Vite serves it. */
   clientDir?: string;
   /** Build version reported by /api/health (e.g. the git commit). */
@@ -58,8 +60,23 @@ export function buildServer(opts: ServerOptions): Server {
   // Also sweep right away: on Fly the machine sleeps when nobody is connected, so deadlines
   // that passed while it was stopped are applied as soon as someone wakes it.
   if (sweepMs > 0) setTimeout(sweep, 0).unref();
+  // Retention: delete old finished games, stale lobbies and games under old rules every hour
+  // (and at start, for the same reason as the sweep).
+  const purgeMs = opts.purgeIntervalMs ?? 3_600_000;
+  const purge = () => {
+    try {
+      const n = store.purge();
+      if (n) app.log.info(`retention: deleted ${n} game${n === 1 ? "" : "s"}`);
+    } catch (e) {
+      app.log.error(e);
+    }
+  };
+  const purger = purgeMs > 0 ? setInterval(purge, purgeMs) : null;
+  purger?.unref();
+  if (purgeMs > 0) setTimeout(purge, 0).unref();
   app.addHook("onClose", async () => {
     if (sweeper) clearInterval(sweeper);
+    if (purger) clearInterval(purger);
     db.close();
   });
 
