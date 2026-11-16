@@ -1,3 +1,4 @@
+import { HelpButton } from "./Help.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ITEM_NAMES, botAction, candidateCombos, playerView,
@@ -146,6 +147,7 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
           {state.pendingRoll !== null ? ` · rolled ${state.pendingRoll}` : ""}
         </span>
         <span className="spacer" />
+        <HelpButton label="?" />
         <button className="tools-toggle" onClick={() => setToolsOpen(!toolsOpen)} aria-expanded={toolsOpen}>☰ Tools</button>
         <div className={`tools${toolsOpen ? " open" : ""}`}>
         <label>

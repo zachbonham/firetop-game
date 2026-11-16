@@ -6,6 +6,8 @@ cross a private tile maze, beat the wizard, and open his chest with the right 3 
 
 - Full rules and plan: [docs/rules.md](docs/rules.md) (summary) and the planning doc it links to.
 - Milestones: [docs/milestones.md](docs/milestones.md)
+- In-game quick help: the **? How to play** button (lobby, waiting room and game top bar),
+  `packages/client/src/Help.tsx`. Its numbers come from `DEFAULT_CONFIG`; update its text with rule changes.
 
 ## Layout
 

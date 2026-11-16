@@ -1,3 +1,4 @@
+import { HelpButton } from "../Help.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ITEM_NAMES, candidateCombos, type Action, type NodeId, type PlayerView } from "@firetop/engine";
 import { ActionPanel, attackable } from "../ActionPanel.js";
@@ -197,6 +198,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
         {offline && <span className="error">offline, retrying…</span>}
         {busy && <span className="hint">sending…</span>}
         <span className="hint">You are <b>{me.name}</b></span>
+        <HelpButton label="?" />
       </header>
 
       {cards.length > 0 && <CardPopup cards={cards} onClose={() => setCards([])} />}
