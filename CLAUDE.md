@@ -19,7 +19,8 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
 - Server (`packages/server`): game state is never stored, only setup + action log (bot moves are
   logged like any other action, so replays don't depend on the bot). Every response with game
   data is built from `playerView` for the seat the bearer token belongs to; never take an actor
-  id from the client. Seat tokens are stored only as sha256 hashes.
+  id from the client. Seat tokens are stored only as sha256 hashes. Ended games, stale lobbies and
+  games under other rules are deleted after `RETENTION_DAYS` (games.ts; docs/deploy.md).
 - Scripted edits and one-off helper scripts use Node (`node script.mjs`), not Python: this is a
   Windows machine with no Python installed. Put the script in a file rather than `node -e`, since
   quotes and backslashes get mangled by the shell.

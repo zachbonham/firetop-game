@@ -99,7 +99,24 @@ export interface StoreOptions {
   /** Most games kept in the replay cache. */
   cacheSize?: number;
   now?: () => string;
+  /** How long to keep games that can't change any more (days). See RETENTION_DAYS. */
+  retentionDays?: Partial<RetentionDays>;
 }
+
+export interface RetentionDays {
+  /** Finished or abandoned games, counted from the game's end: players can still look at the final board. */
+  ended: number;
+  /** Lobbies that never started, counted from the last seat claimed (or creation). */
+  waiting: number;
+  /** Games stored under other rules, which the server refuses (410) anyway, counted from their last change. */
+  otherRules: number;
+}
+
+/**
+ * The retention policy. Active games are never deleted: the turn timer always ends a game
+ * whose players stopped playing (3 missed turns removes a player; no humans left = abandoned).
+ */
+export const RETENTION_DAYS: RetentionDays = { ended: 30, waiting: 14, otherRules: 30 };
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
@@ -125,11 +142,13 @@ export class GameStore {
   private readonly maxBotActions: number;
   private readonly cacheSize: number;
   private readonly now: () => string;
+  private readonly retention: RetentionDays;
 
   constructor(private readonly db: Db, opts: StoreOptions = {}) {
     this.maxBotActions = opts.maxBotActions ?? 5000;
     this.cacheSize = opts.cacheSize ?? 200;
     this.now = opts.now ?? (() => new Date().toISOString());
+    this.retention = { ...RETENTION_DAYS, ...opts.retentionDays };
     this.changes.setMaxListeners(0);
   }
 
@@ -174,7 +193,7 @@ export class GameStore {
     const row: GameRow = {
       id: randomBytes(9).toString("base64url"), seed, config, rulesVersion: RULES_VERSION,
       status: waiting ? "waiting" : "active", createdAt, turnSeconds,
-      deadline: waiting ? null : this.deadlineFrom(createdAt, turnSeconds), lobbyRev: 0,
+      deadline: waiting ? null : this.deadlineFrom(createdAt, turnSeconds), lobbyRev: 0, updatedAt: createdAt,
     };
     const state = this.setUp(row, waiting ? seats : lineup(seats));
 
@@ -193,7 +212,7 @@ export class GameStore {
       return cached;
     }
     const row = this.db.getGame(gameId);
-    if (!row) throw new ApiError(404, "no such game", "not_found");
+    if (!row) throw new ApiError(404, `no such game (finished games are deleted ${this.retention.ended} days after they end)`, "not_found");
     if (row.rulesVersion !== RULES_VERSION) {
       throw new ApiError(
         410,
@@ -244,7 +263,9 @@ export class GameStore {
     if (game.row.status !== "waiting") throw new ApiError(409, "this game has already started", "started");
     const seat = game.seats.find((s) => s.playerId === playerId);
     if (!seat || seat.isBot) throw new ApiError(400, "not a seat you can claim", "bad_request");
-    this.db.claimSeat(gameId, playerId, name, archetype);
+    const now = this.now();
+    this.db.claimSeat(gameId, playerId, name, archetype, now);
+    game.row.updatedAt = now;
     seat.name = name;
     seat.archetype = archetype;
     seat.status = "claimed";
@@ -345,7 +366,7 @@ export class GameStore {
   sweep(): number {
     const now = this.now();
     let n = 0;
-    for (const id of this.db.dueGames(now)) {
+    for (const id of this.db.dueGames(now, RULES_VERSION)) {
       let game: LiveGame;
       try {
         game = this.load(id);
@@ -362,6 +383,23 @@ export class GameStore {
       n++;
     }
     return n;
+  }
+
+  /**
+   * Apply the retention policy (the server calls this every hour): delete games that can't
+   * change any more once they're past their window. Returns how many were deleted.
+   */
+  purge(): number {
+    const now = Date.parse(this.now());
+    const before = (days: number) => new Date(now - days * 86_400_000).toISOString();
+    const cutoffs = { ended: before(this.retention.ended), waiting: before(this.retention.waiting), otherRules: before(this.retention.otherRules) };
+    let n = 0;
+    for (;;) {
+      const ids = this.db.purgeGames(cutoffs, RULES_VERSION);
+      for (const id of ids) this.cache.delete(id);
+      n += ids.length;
+      if (ids.length === 0) return n;
+    }
   }
 
   /**
@@ -410,8 +448,10 @@ export class GameStore {
   private begin(game: LiveGame): void {
     const state = this.setUp(game.row, lineup(game.seats));
     for (const s of game.seats) if (s.status === "open") s.status = "dropped";
-    const deadline = this.deadlineFrom(this.now(), game.row.turnSeconds);
-    this.db.startGame(game.row.id, deadline);
+    const now = this.now();
+    const deadline = this.deadlineFrom(now, game.row.turnSeconds);
+    this.db.startGame(game.row.id, deadline, now);
+    game.row.updatedAt = now;
     game.row.status = "active";
     game.row.deadline = deadline;
     game.row.lobbyRev++;
@@ -462,12 +502,13 @@ export class GameStore {
         : game.row.deadline;
     this.db.transaction(() => {
       this.db.appendActions(game.row.id, rows, now);
-      this.db.setTurn(game.row.id, status, deadline);
+      this.db.setTurn(game.row.id, status, deadline, now);
     });
     game.state = state;
     game.seq += rows.length;
     game.row.status = status;
     game.row.deadline = deadline;
+    game.row.updatedAt = now;
     this.changed(game);
   }
 

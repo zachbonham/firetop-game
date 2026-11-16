@@ -70,6 +70,28 @@ To turn on the weekly backup drill:
   replayed differently. Players see "Can't open this game", so finish or abandon running games
   before deploying a rules bump.
 
+## Data retention
+
+The server deletes games that can't change any more, so the database doesn't keep growing. It
+checks once an hour and once at startup. A game is deleted with its seats and its action log.
+The clock starts at the game's last change (`games.updated_at`): its last action, a seat
+claimed, or the start.
+
+| Game | Kept for |
+|------|----------|
+| Finished or abandoned | 30 days after it ends, so players can still look at the final board and log |
+| Waiting for players (never started) | 14 days after the last seat was claimed, or after it was created |
+| Stored under another `RULES_VERSION` (refused with 410) | 30 days after its last change, whatever its status |
+| Active | Never deleted. The turn timer always ends a stalled game: 3 missed turns removes a player, and a game with no humans left ends as abandoned |
+
+- The windows are `RETENTION_DAYS` in `packages/server/src/games.ts`.
+- A deleted game's link answers 404, and the message says that finished games are deleted.
+  The game stays in the player's "your games" list until they remove it there.
+- SQLite reuses the freed pages, so the file stops growing but doesn't shrink. To shrink it, run
+  `VACUUM` by hand (it locks the database while it runs).
+- Backups keep deleted games for a while longer: Litestream until its retention window passes,
+  and Fly volume snapshots for 5 days.
+
 ## Restore
 
 - **Lost or replaced machine or volume:** create a new empty `firetop_data` volume and deploy.
