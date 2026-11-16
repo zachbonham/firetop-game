@@ -260,3 +260,38 @@ a.button.primary { background: var(--accent); color: #1a1a1a; font-weight: 600; 
 .waiting-seats { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .waiting-seats li { display: flex; gap: 10px; align-items: center; }
 .waiting-seats li small { color: var(--muted); }
+
+/* Phone shell (prototype): the portrait board scrolls in the space above a bottom sheet.
+   The sheet always shows your actions; open it for players, chest and log. */
+.shell { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.shell .topbar { position: static; flex-shrink: 0; }
+.shell .banner { flex-shrink: 0; }
+.shell .main { flex: 1; min-height: 0; padding: 0; gap: 0; align-items: stretch; }
+.shell .board-col { flex: 1; min-height: 0; display: flex; }
+.shell .board-wrap { flex: 1; overflow: auto; overscroll-behavior: contain; border-radius: 0; }
+.shell .board, .shell .board-wrap.zoomed .board { width: 100%; max-width: none; border-radius: 0; }
+.shell .zoom-toggle { display: none; }
+.shell .sheet {
+  flex-shrink: 0; box-sizing: border-box; width: 100%; max-height: 45dvh; overflow-y: auto; gap: 8px;
+  padding: 0 8px calc(8px + env(safe-area-inset-bottom)); background: var(--bg);
+  border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.45);
+}
+.shell .sheet.open { max-height: 78dvh; }
+.sheet-handle {
+  position: sticky; top: 0; z-index: 1; width: 100%; min-height: 36px; border: none; border-radius: 0;
+  background: var(--bg); color: var(--muted); font-size: 12px;
+}
+.sheet-handle::before { content: ""; display: block; width: 40px; height: 4px; margin: 0 auto 4px; border-radius: 2px; background: var(--line); }
+.shell .board-col { flex-direction: column; }
+.shell .board-col > .hint { display: none; }
+.shell .cover { flex: 1; height: auto; border-radius: 0; }
+.shell .topbar .tools.open { max-height: 40dvh; overflow-y: auto; }
+/* Your health and stats, always visible at the top of the phone sheet */
+.vitals { display: flex; align-items: center; gap: 10px; padding: 0 4px; font-size: 12px; color: var(--muted); }
+.vitals b { color: var(--text); font-size: 14px; }
+.vitals-stamina { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.vitals-stat { white-space: nowrap; }
+.vitals .bar { height: 10px; border-radius: 5px; background: #15151a; border: 1px solid var(--line); overflow: hidden; }
+.vitals .bar span { display: block; height: 100%; border-radius: 4px; background: #6fbf5a; transition: width 0.4s ease; }
+.vitals .bar.low span { background: #e0a83a; }
+.vitals .bar.danger span { background: #d9533a; }

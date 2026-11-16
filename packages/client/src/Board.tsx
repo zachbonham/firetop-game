@@ -2,11 +2,9 @@ import {
   ENTRY_ROW, E, ITEM_NAMES, MAZE_SIZE, N, S, W, ROOM_IDS, isMazeTile, locationOf, openings,
   type Encounter, type GameState, type NodeId, type PeekedEncounter, type PlayerView, type PublicEncounter, type TileType,
 } from "@firetop/engine";
-import {
-  EDGES, HEIGHT, LAIR_POS, MAZE_ORIGIN, POSITIONS, ROOM_LABEL_POS, TILE, WIDTH,
-  positionOf, tileCenter,
-} from "./layout.js";
-import { encounterLabel, seatColor } from "./describe.js";
+import { EDGES, LANDSCAPE, type BoardLayout } from "./layout.js";
+import { useContext } from "react";
+import { MazeTurned, encounterLabel, seatColor } from "./describe.js";
 import { Icon, type IconName } from "./art/icons.js";
 
 interface Props {
@@ -26,6 +24,8 @@ interface Props {
   onTileClick: (row: number, col: number) => void;
   /** Clicking a room that isn't a move target (e.g. to show its card). */
   onRoomClick?: (room: string) => void;
+  /** Board geometry: LANDSCAPE (default) or PORTRAIT for phones. */
+  layout?: BoardLayout;
 }
 
 type AnyEncounter = Encounter | PublicEncounter | PeekedEncounter;
@@ -54,6 +54,11 @@ interface TileInfo {
 }
 
 export function Board(p: Props) {
+  const L = p.layout ?? LANDSCAPE;
+  const {
+    positions: POSITIONS, mazeOrigin: MAZE_ORIGIN, lair: LAIR_POS, tile: TILE, width: WIDTH, height: HEIGHT,
+    roomCenters: ROOM_LABEL_POS, tileCenter, positionOf, mazeAhead: AHEAD, hiddenAt: HIDDEN,
+  } = L;
   const god = p.view === null;
   const state = p.state;
   if (god && !state) throw new Error("Board: the god view needs the full state");
@@ -118,13 +123,15 @@ export function Board(p: Props) {
     }
     const label = enc ? `${secret && !god ? "📜 " : ""}${encounterLabel(enc)}` : "";
     const clickable = !!p.onRoomClick && !!enc;
+    // Portrait: paths leave a room from its top right, so the name sits top left.
+    const plaqueX = L.portrait ? x0 + 15 : c.x;
     return (
       <g key={room} className={`room${cleared ? " cleared" : ""}${clickable ? " clickable" : ""}`} onClick={clickable ? () => p.onRoomClick!(room) : undefined} data-room={room}>
         <rect x={x0} y={c.y - 22} width={x1 - x0} height={44} rx={12} className="chamber rough" />
         <rect x={x0 + 4} y={c.y - 18} width={x1 - x0 - 8} height={36} rx={9} className="chamber-floor" />
         <g className="plaque">
-          <rect x={c.x - 15} y={c.y - 33} width={30} height={14} rx={3} />
-          <text x={c.x} y={c.y - 23}>{room.toUpperCase()}</text>
+          <rect x={plaqueX - 15} y={c.y - 33} width={30} height={14} rx={3} />
+          <text x={plaqueX} y={c.y - 23}>{room.toUpperCase()}</text>
         </g>
         <g transform={`translate(${x1 - 2} ${c.y - 22})`}>
           <circle r={12} className={`emblem${secret ? " secret" : ""}`} />
@@ -139,19 +146,19 @@ export function Board(p: Props) {
     );
   });
 
-  const squares = [...POSITIONS.entries()].map(([id, pt]) => {
+  const square = ([id, pt]: [NodeId, { x: number; y: number }]) => {
     const big = BIG[id];
     const target = p.moveTargets.has(id);
     const cls = ["sq", big ? "big" : "", id.startsWith("p:") ? "path" : "room-sq", target ? "target" : "", p.selected === id ? "selected" : ""].join(" ");
     return (
       <g key={id} onClick={() => p.onNodeClick(id)} className={target ? "clickable" : ""} data-node={id}>
         {/* Invisible, larger hit area so small squares are easy to click (and tap). */}
-        <circle cx={pt.x} cy={pt.y} r={big ? 26 : 14} fill="transparent" />
+        <circle cx={pt.x} cy={pt.y} r={big ? 26 : L.portrait ? 17 : 14} fill="transparent" />
         {big ? (
           <>
             <circle cx={pt.x} cy={pt.y} r={21} className={`${cls} rough`} />
             <Icon name={big.icon} x={pt.x} y={pt.y} size={26} color="#d9cfa8" />
-            <text x={pt.x} y={pt.y + (id === "lair" ? 40 : -28)} className="big-label">{big.label}</text>
+            <text x={pt.x} y={pt.y + (L.portrait ? (id === "lair" || id === "camp" ? -28 : 40) : id === "lair" ? 40 : -28)} className="big-label">{big.label}</text>
           </>
         ) : (
           <rect x={pt.x - 9} y={pt.y - 9} width={18} height={18} rx={4} className={cls} />
@@ -159,7 +166,11 @@ export function Board(p: Props) {
         <title>{id}</title>
       </g>
     );
-  });
+  };
+  // Path squares go under the rooms, so a room's name and label stay readable where a path runs close.
+  const all = [...POSITIONS.entries()];
+  const pathSquares = all.filter(([id]) => id.startsWith("p:")).map(square);
+  const squares = all.filter(([id]) => !id.startsWith("p:")).map(square);
 
   const tiles = [];
   for (let r = 0; r < MAZE_SIZE; r++) {
@@ -171,7 +182,8 @@ export function Board(p: Props) {
       const target = p.moveTargets.has(id);
       const facedown = rot === undefined && !flipping;
       const cls = ["tile", facedown ? "facedown" : "", target ? "target" : "", flipping ? "flipping" : "", p.selectedTile === key ? "selected" : ""].join(" ");
-      const x = MAZE_ORIGIN.x + c * TILE, y = MAZE_ORIGIN.y + r * TILE;
+      const tc = tileCenter(r, c);
+      const x = tc.x - TILE / 2, y = tc.y - TILE / 2;
       tiles.push(
         <g key={key} onClick={() => (target ? p.onNodeClick(id) : p.onTileClick(r, c))} className="clickable" data-node={id}>
           <rect x={x + 1} y={y + 1} width={TILE - 2} height={TILE - 2} rx={3} className={cls} />
@@ -190,21 +202,23 @@ export function Board(p: Props) {
   const mazeW = MAZE_SIZE * TILE;
 
   return (
+    <MazeTurned.Provider value={L.mazeTurned}>
     <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="board" role="img" aria-label="Game board">
       <BoardDefs />
       <rect x={0} y={0} width={WIDTH} height={HEIGHT} fill="url(#ground)" />
-      <Mountain />
+      {!L.portrait && <Mountain layout={L} />}
       <rect x={0} y={0} width={WIDTH} height={HEIGHT} fill="url(#vignette)" pointerEvents="none" />
 
       {EDGES.map(([a, b]) => {
         const pa = POSITIONS.get(a)!, pb = POSITIONS.get(b)!;
         return <line key={`${a}|${b}`} x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className="corridor" />;
       })}
-      <line x1={mazeSq.x} y1={mazeSq.y} x2={entry.x - TILE / 2} y2={entry.y} className="corridor" />
+      <line x1={mazeSq.x} y1={mazeSq.y} x2={entry.x - (AHEAD.x * TILE) / 2} y2={entry.y - (AHEAD.y * TILE) / 2} className="corridor" />
       {[0, 1, 2, 3].map((r) => {
         const t = tileCenter(r, MAZE_SIZE - 1);
-        return <line key={r} x1={t.x + TILE / 2} y1={t.y} x2={LAIR_POS.x} y2={LAIR_POS.y} className="corridor exit" />;
+        return <line key={r} x1={t.x + (AHEAD.x * TILE) / 2} y1={t.y + (AHEAD.y * TILE) / 2} x2={LAIR_POS.x} y2={LAIR_POS.y} className="corridor exit" />;
       })}
+      {pathSquares}
       {roomBoxes}
       <rect x={MAZE_ORIGIN.x - 6} y={MAZE_ORIGIN.y - 6} width={mazeW + 12} height={mazeW + 12} rx={8} className="maze-frame rough" />
       {squares}
@@ -227,10 +241,11 @@ export function Board(p: Props) {
         ));
       })}
       {hidden.map((pl, i) => (
-        <Token key={pl.id} x={MAZE_ORIGIN.x + i * 18 + 8} y={MAZE_ORIGIN.y - 18} idx={pl.idx} name={pl.name} current={pl.id === currentId} />
+        <Token key={pl.id} x={HIDDEN.x + i * 18} y={HIDDEN.y} idx={pl.idx} name={pl.name} current={pl.id === currentId} />
       ))}
-      {hidden.length > 0 && <text x={MAZE_ORIGIN.x + hidden.length * 18 + 8} y={MAZE_ORIGIN.y - 14} className="hint">in the maze (position hidden)</text>}
+      {hidden.length > 0 && <text x={HIDDEN.x + hidden.length * 18} y={HIDDEN.y + 4} className="hint">in the maze (position hidden)</text>}
     </svg>
+    </MazeTurned.Provider>
   );
 }
 
@@ -269,7 +284,8 @@ function BoardDefs() {
 }
 
 /** A dark mountain silhouette behind the maze and lair. */
-function Mountain() {
+function Mountain({ layout }: { layout: BoardLayout }) {
+  const { mazeOrigin: MAZE_ORIGIN, lair: LAIR_POS, width: WIDTH, height: HEIGHT } = layout;
   const x0 = MAZE_ORIGIN.x - 260, base = HEIGHT;
   const peak = LAIR_POS.x - 60;
   return (
@@ -297,7 +313,11 @@ function Token({ x, y, idx, name, current }: { x: number; y: number; idx: number
 /** A maze tile's corridors: carved channels from the centre to each open side. */
 export function TilePaths({ cx, cy, size, mask, ghost }: { cx: number; cy: number; size: number; mask: number; ghost?: boolean }) {
   const h = size / 2;
-  const ends: [number, number, number][] = [[N, 0, -h], [E, h, 0], [S, 0, h], [W, -h, 0]];
+  // On a turned maze east is up the screen, so every side moves a quarter anticlockwise.
+  const turned = useContext(MazeTurned);
+  const ends: [number, number, number][] = turned
+    ? [[N, -h, 0], [E, 0, -h], [S, h, 0], [W, 0, h]]
+    : [[N, 0, -h], [E, h, 0], [S, 0, h], [W, -h, 0]];
   const open = ends.filter(([d]) => mask & d);
   return (
     <g className={`tile-paths${ghost ? " ghost" : ""}`} pointerEvents="none">
@@ -322,7 +342,10 @@ export function TileIcon({ type, rotation, size = 44, entrySide }: { type: TileT
 
 function EntryMark({ side, size }: { side: number; size: number }) {
   const m = size / 2;
-  const pos: Record<number, [number, number]> = { [N]: [m, 3], [E]: [size - 3, m], [S]: [m, size - 3], [W]: [3, m] };
+  const turned = useContext(MazeTurned);
+  const pos: Record<number, [number, number]> = turned
+    ? { [N]: [3, m], [E]: [m, 3], [S]: [size - 3, m], [W]: [m, size - 3] }
+    : { [N]: [m, 3], [E]: [size - 3, m], [S]: [m, size - 3], [W]: [3, m] };
   const [x, y] = pos[side] ?? [m, m];
   return <circle cx={x} cy={y} r={3} className="entry-mark" />;
 }

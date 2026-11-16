@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import {
   ENTRY_ROW, ITEM_NAMES, LAIR, MAZE_SQUARE, candidateCombos, isMazeTile, mazeHint, openings, reachableFromEntry,
   type Action, type NodeId, type PlayerView, type PublicPlayer,
 } from "@firetop/engine";
 import { TileIcon } from "./Board.js";
-import { describeNode, sideName } from "./describe.js";
+import { MazeTurned, describeNode, sideName } from "./describe.js";
 
 interface Props {
   view: PlayerView;
@@ -47,11 +47,11 @@ export function keepsWayBack(view: PlayerView, row: number, col: number, rotatio
   }).has(me.pos.slice(2));
 }
 
-const sideOf = (side: number) => ["", "north", "east", "", "south", "", "", "", "west"][side] ?? "";
-const describeOpenings = (mask: number) => [1, 2, 4, 8].filter((d) => mask & d).map(sideOf).join("–");
+const describeOpenings = (mask: number, turned: boolean) => [1, 2, 4, 8].filter((d) => mask & d).map((d) => sideName(d, turned)).join("–");
 
 export function ActionPanel(p: Props) {
   const { view } = p;
+  const turned = useContext(MazeTurned);
   const me = view.players.find((x) => x.id === view.viewerId)!;
   const mine = view.me!;
   const cfg = view.config;
@@ -67,7 +67,7 @@ export function ActionPanel(p: Props) {
       <div className="actions">
         <h3>Turn the tile you flipped</h3>
         <p>
-          You found a <b>{f.type}</b> tile at {f.row},{f.col}. It must open to the {sideName(f.entrySide)} (where you came from, marked
+          You found a <b>{f.type}</b> tile at {f.row},{f.col}. It must open to the {sideName(f.entrySide, turned)} (where you came from, marked
           with a dot).
         </p>
         <div className="rotations">
@@ -150,7 +150,7 @@ export function ActionPanel(p: Props) {
                       <button
                         key={r}
                         disabled={r === selTile.rotation || cuts}
-                        title={cuts ? "This would cut you off from the maze entrance" : `Opens ${describeOpenings(openings(selTile.type, r))}`}
+                        title={cuts ? "This would cut you off from the maze entrance" : `Opens ${describeOpenings(openings(selTile.type, r), turned)}`}
                         onClick={() => p.onAction({ type: "rotateTile", row: selTile.row, col: selTile.col, rotation: r })}
                       >
                         <TileIcon type={selTile.type} rotation={r} />
@@ -254,12 +254,13 @@ function GuessChest({ view, onGuess }: { view: PlayerView; onGuess: (keys: numbe
 
 /** Shown when the player's revealed maze has no way forward. */
 function MazeHintBox({ hint, view, onShow }: { hint: NonNullable<ReturnType<typeof mazeHint>>; view: PlayerView; onShow: (key: string | null) => void }) {
+  const turned = useContext(MazeTurned);
   if (hint.kind === "rotate") {
     const t = view.me!.maze.find((x) => x.row === hint.row && x.col === hint.col);
     return (
       <div className="choice maze-hint">
         <p>
-          <b>No way forward.</b> Re-turn tile {hint.row},{hint.col} so it opens {t ? describeOpenings(openings(t.type, hint.rotation)) : "the other way"}.
+          <b>No way forward.</b> Re-turn tile {hint.row},{hint.col} so it opens {t ? describeOpenings(openings(t.type, hint.rotation), turned) : "the other way"}.
         </p>
         <button onClick={() => onShow(`${hint.row}:${hint.col}`)}>Show me</button>
       </div>

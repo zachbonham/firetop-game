@@ -5,9 +5,10 @@ import {
 } from "@firetop/engine";
 import { ActionPanel, attackable } from "./ActionPanel.js";
 import { Board } from "./Board.js";
-import { useBoardFocus } from "./useBoardFocus.js";
-import { CardPopup, Portrait, cardsBetween, roomCard, type CardData } from "./Cards.js";
-import { describeNode, encounterLabel, seatColor } from "./describe.js";
+import { PORTRAIT } from "./layout.js";
+import { useBoardFocus, useIsPhone } from "./useBoardFocus.js";
+import { CardPopup, Portrait, Vitals, cardsBetween, roomCard, type CardData } from "./Cards.js";
+import { MazeTurned, describeNode, encounterLabel, seatColor } from "./describe.js";
 import { saveData, type AutosaveStatus } from "./autosave.js";
 import { downloadJson } from "./files.js";
 import { act, sessionName, stats, undo, undoHumanTurn, type Session } from "./session.js";
@@ -44,6 +45,9 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
   const [cards, setCards] = useState<CardData[]>([]);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [zoomed, setZoomed] = useState(true);
+  // Phones get the portrait board with everything else in a sheet under it (as online).
+  const phone = useIsPhone();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -108,7 +112,7 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
 
   // On small screens the board is wider than the screen: keep the action in view.
   const focusNode = actorView?.me?.pos ?? (current.pos === "maze:hidden" ? null : current.pos);
-  useBoardFocus(boardRef, focusNode, [zoomed, covered]);
+  useBoardFocus(boardRef, focusNode, [zoomed, covered, phone]);
 
   const onNodeClick = (id: NodeId) => {
     if (!actorView || !moveTargets.has(id)) return;
@@ -128,11 +132,12 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
     if (actorView && state.phase === "roll") setSelectedTile(`${row}:${col}`);
   };
 
+  const viewer = view.players.find((p) => p.id === viewerId);
   const st = stats(session);
   const winner = state.players.find((p) => p.id === state.winner);
 
   return (
-    <div className="game">
+    <div className={`game${phone ? " shell" : ""}`}>
       <header className="topbar">
         <b>Turn {state.turn}</b>
         <span>
@@ -198,6 +203,7 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
               onNodeClick={onNodeClick}
               onTileClick={onTileClick}
               onRoomClick={onRoomClick}
+              {...(phone ? { layout: PORTRAIT } : {})}
             />
           )}
         </div>
@@ -210,26 +216,37 @@ export function Game({ session, setSession, saveStatus, onNewGame }: Props) {
           </p>
         </div>
 
-        <aside className="side">
+        <aside className={phone ? `side sheet${sheetOpen ? " open" : ""}` : "side"}>
+          {phone && (
+            <button className="sheet-handle" aria-expanded={sheetOpen} onClick={() => setSheetOpen(!sheetOpen)}>
+              {sheetOpen ? "▼ Back to the board" : "▲ Players, chest & log"}
+            </button>
+          )}
+          {phone && !covered && viewer && <Vitals player={viewer} color={seatColor(view.players.indexOf(viewer))} />}
           {!finished && actorView && (
-            <ActionPanel
-              view={actorView}
-              onAction={(a) => apply(current.id, a)}
-              onBotTurn={botStep}
-              selectedTo={selectedTo}
-              setSelectedTo={setSelectedTo}
-              selectedTile={selectedTile}
-              setSelectedTile={setSelectedTile}
-            />
+            // The tile pickers must match the board: on phones the maze is drawn turned.
+            <MazeTurned.Provider value={phone}>
+              <ActionPanel
+                view={actorView}
+                onAction={(a) => apply(current.id, a)}
+                onBotTurn={botStep}
+                selectedTo={selectedTo}
+                setSelectedTo={setSelectedTo}
+                selectedTile={selectedTile}
+                setSelectedTile={setSelectedTile}
+              />
+            </MazeTurned.Provider>
           )}
           {!finished && !currentIsHuman && (
             <div className="actions"><p>🤖 {current.name} is playing{speed === "paused" ? " (paused: use Step bot)" : "…"}</p></div>
           )}
+          {(!phone || sheetOpen) && <>
           {!covered && <Players state={state} view={view} god={god} isBot={isBot} onSettings={(id, settings) => apply(id, { type: "setSettings", settings })} />}
           {!covered && <Guesses view={view} />}
           {god && <Secrets state={state} />}
           <Stats st={st} />
           {!covered && <Log state={state} view={view} god={god} />}
+          </>}
         </aside>
       </div>
     </div>

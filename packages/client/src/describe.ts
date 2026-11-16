@@ -1,3 +1,4 @@
+import { createContext } from "react";
 import {
   E, ITEM_NAMES, N, S, W, isMazeTile,
   type Encounter, type NodeId, type PeekedEncounter, type PublicEncounter,
@@ -43,6 +44,14 @@ export function describeNode(id: NodeId): string {
   return `room ${room!.toUpperCase()}`;
 }
 
-export function sideName(side: number): string {
+/**
+ * True where the maze is drawn turned a quarter (the phone's portrait board):
+ * the engine's east points up the screen. Tile drawings and side names follow it.
+ */
+export const MazeTurned = createContext(false);
+
+/** A tile side in words. On a turned maze the words follow the screen, not the compass. */
+export function sideName(side: number, turned = false): string {
+  if (turned) return side === N ? "left" : side === E ? "top" : side === S ? "right" : side === W ? "bottom" : "?";
   return side === N ? "north" : side === E ? "east" : side === S ? "south" : side === W ? "west" : "?";
 }
