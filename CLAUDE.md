@@ -20,6 +20,21 @@ Async multiplayer board game (Warlock of Firetop Mountain inspired). See README.
   logged like any other action, so replays don't depend on the bot). Every response with game
   data is built from `playerView` for the seat the bearer token belongs to; never take an actor
   id from the client. Seat tokens are stored only as sha256 hashes.
+- Scripted edits and one-off helper scripts use Node (`node script.mjs`), not Python: this is a
+  Windows machine with no Python installed. Put the script in a file rather than `node -e`, since
+  quotes and backslashes get mangled by the shell.
+
+## Git workflow
+- Start every piece of work on a new branch cut from an up-to-date `main`
+  (`git fetch && git switch -c <branch> origin/main`). Never commit to `main` directly, and
+  don't stack new work on an already-merged branch.
+- When the work is done, commit, push and open a PR against `main`.
+- Once the PR's CI checks pass, merge it without asking (`gh pr merge <n> --merge`, merge
+  commits as before). GitHub auto-merge is turned off for this repo, so wait for the checks
+  (`gh pr checks <n> --watch`) and then merge. If a check fails, or the PR has conflicts, fix it
+  or report it instead of merging.
+- Merging to `main` deploys to Fly. After a merge, check that the Deploy run succeeded and that
+  `/api/health` reports the new commit.
 
 ## Commands
 - `npm test`, `npm run typecheck`, `npm run build`, `npm run sim -- <games> [--config overrides.json]`
