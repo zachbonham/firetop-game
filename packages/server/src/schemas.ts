@@ -58,16 +58,33 @@ export const createGameBody = {
       minItems: 2,
       maxItems: 4,
       items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "archetype"],
-        properties: {
-          name: { type: "string", minLength: 1, maxLength: 24 },
-          archetype: { enum: Object.keys(ARCHETYPES) },
-          bot: { type: "boolean", default: false },
-        },
+        anyOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["name", "archetype"],
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 24 },
+              archetype: { enum: Object.keys(ARCHETYPES) },
+              bot: { type: "boolean" },
+            },
+          },
+          // An invited seat: its player picks their own name and hero from the link.
+          { type: "object", additionalProperties: false, required: ["open"], properties: { open: { const: true } } },
+        ],
       },
     },
+  },
+} as const;
+
+/** Claiming an invited seat (or changing your name or hero before the game starts). */
+export const claimBody = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "archetype"],
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 24, pattern: "\\S" },
+    archetype: { enum: Object.keys(ARCHETYPES) },
   },
 } as const;
 
@@ -92,6 +109,8 @@ export const gameQuery = {
   additionalProperties: false,
   properties: {
     since: { type: "integer", minimum: 0 },
+    // Like since, but counts every change (rev), including seats claimed before the game starts.
+    rev: { type: "integer", minimum: 0 },
     wait: { type: "integer", minimum: 0, maximum: 30000 },
   },
 } as const;

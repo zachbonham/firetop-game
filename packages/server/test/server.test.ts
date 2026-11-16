@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RULES_VERSION, botAction, type Action, type GameState, type PlayerView } from "@firetop/engine";
 import { buildServer, type Server } from "../src/app.js";
-import type { GameResponse } from "../src/games.js";
+import type { GameResponse as AnyResponse } from "../src/games.js";
+
+/** A started game: always has a view. */
+type GameResponse = AnyResponse & { view: PlayerView };
 
 const servers: Server[] = [];
 const tempDirs: string[] = [];
@@ -86,7 +89,7 @@ describe("creating games", () => {
     expect(Object.keys(tokens)).toEqual(["p1"]);
     expect(tokens.p1).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(body).not.toContain('"seed"');
-    const state = s.store.load(gameId).state;
+    const state = s.store.load(gameId).state!;
     expectNoSecrets(body, state, "p1");
   });
 
@@ -128,7 +131,7 @@ describe("creating games", () => {
     });
     expect(res.statusCode).toBe(201);
     const { gameId } = res.json<{ gameId: string }>();
-    expect(s.store.load(gameId).state.config.wizard.name).toBe("Zagor");
+    expect(s.store.load(gameId).state!.config.wizard.name).toBe("Zagor");
   });
 });
 
@@ -253,7 +256,7 @@ describe("a full game over HTTP", () => {
     const { gameId, tokens } = await createGame(s, HUMAN_AND_BOTS, 11);
     let checked = 0;
     const final = await playToEnd(s, gameId, tokens.p1!, (body) => {
-      expectNoSecrets(body, s.store.load(gameId).state, "p1");
+      expectNoSecrets(body, s.store.load(gameId).state!, "p1");
       checked++;
     });
     expect(checked).toBeGreaterThan(5);
@@ -287,7 +290,7 @@ describe("persistence", () => {
     for (let i = 0; i < 12 && res.view.phase !== "finished"; i++) {
       res = (await post(s1, gameId, tokens.p1!, botAction(res.view), res.seq)).json<GameResponse>();
     }
-    const before = structuredClone(s1.store.load(gameId).state);
+    const before = structuredClone(s1.store.load(gameId).state!);
     await s1.app.close();
     servers.splice(servers.indexOf(s1), 1);
 
@@ -295,7 +298,7 @@ describe("persistence", () => {
     const again = await get(s2, gameId, tokens.p1!);
     expect(again.statusCode).toBe(200);
     expect(again.json<GameResponse>()).toEqual(res);
-    expect(s2.store.load(gameId).state).toEqual(before);
+    expect(s2.store.load(gameId).state!).toEqual(before);
     // And play continues from there.
     const next = await post(s2, gameId, tokens.p1!, botAction(res.view), res.seq);
     expect(next.statusCode).toBe(200);
