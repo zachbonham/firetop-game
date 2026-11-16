@@ -3,8 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import type { PlayerView } from "@firetop/engine";
 import { buildServer, type Server } from "../src/app.js";
-import type { GameResponse, PublicLogResponse } from "../src/games.js";
+import type { GameResponse as AnyResponse, PublicLogResponse } from "../src/games.js";
+
+/** A started game: always has a view. */
+type GameResponse = AnyResponse & { view: PlayerView };
 
 const servers: Server[] = [];
 const tempDirs: string[] = [];

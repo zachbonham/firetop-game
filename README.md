@@ -54,9 +54,15 @@ npm run server   # API on http://localhost:3000 (data/firetop.db)
 npm run dev      # client on http://localhost:5173; Vite proxies /api to the server
 ```
 
-- **`/online`:** start a game. Pick 2–4 seats (people or bots), heroes and the time per turn (1h,
-  12h, 24h or 3 days). You get one invite link per person, `/play/<game>#<seat token>`. Anyone
-  with a link plays that seat. This device keeps the first seat, and the page lists your games.
+- **`/online`:** start a game. The first seat is yours (your name and hero); add up to 3 more,
+  each an invited person or a bot, and pick the time per turn (1h, 12h, 24h or 3 days). You get
+  one invite link per invited person, `/play/<game>#<seat token>`. Anyone with a link takes that
+  seat. This device keeps your seat (and the invite links), and the page lists your games.
+- **Waiting room:** until the game starts, an invite link opens a form where its player picks
+  their own name and hero (and can change them until the start). The game starts by itself once
+  every invited seat is claimed. The creator can press *Start* earlier, with whoever has joined
+  (at least 2 players, bots included); seats still open are dropped, and their links then say
+  the game went ahead without them.
 - **`/play/<game>`:** the game, drawn only from your own player view.
   - Opening an invite link saves its token on the device (localStorage) and removes it from the
     address bar.
@@ -119,7 +125,7 @@ in memory). Bot moves are logged like any other action. A game stored under anot
 Settings (env): `FIRETOP_DB` (default `data/firetop.db`, gitignored), `PORT` (3000), `HOST`
 (127.0.0.1), `PUBLIC_URL` (prefix for invite links; default relative links).
 
-**Seat tokens.** Creating a game returns one invite link per human seat:
+**Seat tokens.** Creating a game returns one invite link per human seat (the creator's first):
 `/play/<gameId>#<token>`. The token (32 random bytes, base64url) is in the URL fragment so it
 never reaches server logs; the server keeps only its sha256. Clients send it as
 `Authorization: Bearer <token>`, and the server acts as that token's seat: requests never name
@@ -127,15 +133,24 @@ an actor. Anyone with the link plays that seat.
 
 | Request | Auth | Response |
 |---------|------|----------|
-| `POST /api/games` `{seed?, config?, turnSeconds?, seats: [{name, archetype, bot?}]}` (2-4 seats, at least one human) | none | `201 {gameId, rulesVersion, invites: [{playerId, name, url}]}` |
-| `GET /api/games/:id` | seat token | `{gameId, seq, playerId, seats, status, turnSeconds, deadline, view}` |
-| `GET /api/games/:id?since=<seq>&wait=<ms>` | seat token | long-poll: as above, once `seq > since` or after `wait` (default 25 s, max 30 s) |
+| `POST /api/games` `{seed?, config?, turnSeconds?, seats: [{name, archetype, bot?} or {open: true}]}` (2-4 seats, at least one human) | none | `201 {gameId, status, rulesVersion, invites: [{playerId, name, open, url}]}` |
+| `GET /api/games/:id` | seat token | `{gameId, seq, rev, playerId, host, seats, status, turnSeconds, deadline, view}` |
+| `GET /api/games/:id?rev=<rev>&wait=<ms>` | seat token | long-poll: as above, once `rev` moves past the one given or after `wait` (default 25 s, max 30 s). `since=<seq>` works the same on `seq`. |
+| `POST /api/games/:id/claim` `{name, archetype}` | seat token | claim your open seat, or change your name or hero, while the game is waiting; same as `GET` |
+| `POST /api/games/:id/start` | the creator's seat token | start a waiting game with the seats claimed so far; same as `GET` |
 | `POST /api/games/:id/actions` `{action, expectedSeq}` | seat token | same as `GET /api/games/:id` |
 | `GET /api/games/:id/log` | none (the game id) | public log: `{gameId, seq, status, turn, turnSeconds, deadline, seats (with status), winner, log}` |
 | `GET /api/health` | none | `{ok, rulesVersion}` |
 
-- `seq` is the number of actions in the log. `view` is always `playerView(state, <your seat>)`;
-  `seats` is the public seat list (`playerId, name, archetype, bot`).
+- `seq` is the number of actions in the log; `rev` also counts seats claimed and the start.
+  `view` is always `playerView(state, <your seat>)`, or null while the game is waiting. `seats`
+  is the public seat list (`playerId, name, archetype, bot, open`): every seat while waiting,
+  only the players once started.
+- **Open seats.** A `{open: true}` seat is invited: the game is `waiting` (no state, no log, no
+  deadline) until every open seat is claimed, or the creator (the first human seat, which can't
+  be open) starts it with at least 2 claimed seats. Open seats are then dropped: the players are
+  the claimed seats in seat order. Their player ids keep their seat numbers (`p1, p3`), and the
+  stored setup replays the same way. A game with no open seats starts at once, as before.
 - An action is checked against a JSON schema (any player `Action` except `timeout`, which only
   the server sends), then applied by the engine as the token's seat. After it, bot seats play
   (`botAction(playerView(...))`) until a human is up or the game ends; the human's action and the
@@ -145,7 +160,10 @@ an actor. Anyone with the link plays that seat.
 - Errors are `{error, code}`: `400 bad_request` (schema), `400 bad_config`, `400 rejected`
   (the engine's message, e.g. "not your turn"), `401 unauthorized` (missing or wrong token),
   `404 not_found`, `409 stale_seq` (`expectedSeq` isn't the current `seq`: reload and retry),
-  `409 game_over` (the game is finished or abandoned), `410 rules_version`.
+  `409 game_over` (the game is finished or abandoned), `409 not_started` (acting in a waiting
+  game), `409 started` (claiming or starting a game that has started), `409 too_few` (starting
+  with fewer than 2 players), `403 not_host`, `410 rules_version`, `410 seat_dropped` (a link
+  whose seat was still open when the game started).
 
 **Turn timer (M4).** `turnSeconds` is one of 3600, 43200, 86400 (default) or 259200 (1h, 12h,
 24h, 3 days). It's a server setting, not a rule, so it doesn't affect replays or `RULES_VERSION`.
@@ -154,7 +172,8 @@ within a turn or when another player changes their settings. Every minute the se
 for overdue games and applies a `system` `{type: "timeout"}` (logged publicly), then lets bots
 play, through the same commit path as a player's action. After downtime, an overdue game gets
 one timeout and then a fresh deadline: players aren't punished for the outage.
-`status` is `active`, `finished` or `abandoned`. Abandoned means no human players are left
+`status` is `waiting`, `active`, `finished` or `abandoned`. A waiting game has no deadline: the
+clock starts with the game. Abandoned means no human players are left
 (all removed for missed turns). Bots stop, `deadline` becomes null, actions get `409 game_over`,
 and nobody wins, even if the engine's last-player-standing rule names a bot (`view.winner`
 then means nothing, and `/log` reports `winner: null`).

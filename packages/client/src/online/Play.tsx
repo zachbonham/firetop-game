@@ -5,7 +5,8 @@ import { Board } from "../Board.js";
 import { CardPopup, Portrait, cardsBetween, roomCard, sinceMyLastTurn, type CardData } from "../Cards.js";
 import { describeNode, seatColor } from "../describe.js";
 import { useBoardFocus } from "../useBoardFocus.js";
-import { ApiError, api, type GameResponse } from "./api.js";
+import { ApiError, api, type GameResponse, type StartedGame } from "./api.js";
+import { WaitingRoom } from "./WaitingRoom.js";
 import { parsePlayUrl, saveSeat, seatFor, timeLeft } from "./tokens.js";
 
 /** Find this game's seat token: from the invite link's #fragment (then hidden), or saved on this device. */
@@ -54,13 +55,13 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
 
   /**
    * Keep only the newest response (a long-poll and an action can cross). Every
-   * change to a game adds to its log, so a response at the seq we already show
+   * change to a game moves its rev up, so a response at the rev we already show
    * is the same game: skip it rather than redraw the whole board (each action
    * comes back twice, from the POST and from the long-poll it wakes).
    */
   const accept = useCallback((r: GameResponse) => {
     setOffline(false);
-    if (latest.current && r.seq <= latest.current.seq) return;
+    if (latest.current && r.rev <= latest.current.rev) return;
     latest.current = r;
     setGame(r);
   }, []);
@@ -73,11 +74,11 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
       let backoff = 1000;
       while (!stopped) {
         try {
-          const since = latest.current?.seq;
-          const r = await api.getGame(gameId, token, since === undefined ? { signal: abort.signal } : { since, signal: abort.signal });
+          const rev = latest.current?.rev;
+          const r = await api.getGame(gameId, token, rev === undefined ? { signal: abort.signal } : { rev, signal: abort.signal });
           accept(r);
           backoff = 1000;
-          if (r.status !== "active") break; // game over: nothing more will happen
+          if (r.status !== "active" && r.status !== "waiting") break; // game over: nothing more will happen
         } catch (e) {
           if (stopped) return;
           if (e instanceof ApiError && [401, 404, 410].includes(e.status)) {
@@ -102,7 +103,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
     return () => clearInterval(t);
   }, []);
 
-  const view = game?.view;
+  const view = game?.view ?? undefined;
   const me = view?.players.find((p) => p.id === view.viewerId);
   const myTurn = !!view && !!game && game.status === "active" && view.currentPlayerId === view.viewerId && view.phase !== "finished";
   useEffect(() => {
@@ -112,12 +113,12 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
   useBoardFocus(boardRef, view?.me?.pos ?? null, [zoomed, game?.seq]);
 
   const send = async (action: Action) => {
-    if (!game || busy) return;
+    if (!game?.view || busy) return;
     setBusy(true);
     setError(null);
     try {
       const r = await api.act(gameId, token, action, game.seq);
-      const shown = cardsBetween(game.view, r.view);
+      const shown = r.view ? cardsBetween(game.view, r.view) : [];
       if (shown.length) setCards(shown);
       accept(r);
     } catch (e) {
@@ -132,6 +133,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
   };
 
   if (fatal) return <Message title="Can't open this game">{fatal} <a href="/online">Your games</a></Message>;
+  if (game?.status === "waiting") return <WaitingRoom game={game} token={token} onUpdate={accept} />;
   if (!game || !view || !me) return <Message title="Loading…">{offline ? "Can't reach the game server; retrying…" : "Fetching the game."}</Message>;
 
   const current = view.players.find((p) => p.id === view.currentPlayerId);
@@ -206,7 +208,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
               <p className="hint">This page updates by itself. You can close it and come back with the same link.</p>
             </div>
           ) : null}
-          <Players game={game} onSettings={(settings) => void send({ type: "setSettings", settings })} />
+          <Players game={game as StartedGame} onSettings={(settings) => void send({ type: "setSettings", settings })} />
           <Chest view={view} />
           <Log view={view} />
         </aside>
@@ -215,7 +217,7 @@ function OnlineGame({ gameId, token }: { gameId: string; token: string }) {
   );
 }
 
-function Players({ game, onSettings }: { game: GameResponse; onSettings: (s: { fleeBelow?: number; autoLuck?: boolean }) => void }) {
+function Players({ game, onSettings }: { game: StartedGame; onSettings: (s: { fleeBelow?: number; autoLuck?: boolean }) => void }) {
   const view = game.view;
   return (
     <section className="panel">

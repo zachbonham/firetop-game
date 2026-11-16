@@ -1,8 +1,8 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import { RULES_VERSION, type Action } from "@firetop/engine";
+import { RULES_VERSION, type Action, type Archetype } from "@firetop/engine";
 import { Db } from "./db.js";
 import { ApiError, GameStore, type NewGameInput, type StoreOptions } from "./games.js";
-import { actionBody, createGameBody, gameParams, gameQuery } from "./schemas.js";
+import { actionBody, claimBody, createGameBody, gameParams, gameQuery } from "./schemas.js";
 import { serveClient } from "./static.js";
 
 export interface ServerOptions extends StoreOptions {
@@ -85,32 +85,54 @@ export function buildServer(opts: ServerOptions): Server {
     reply.status(201);
     return {
       gameId: created.gameId,
+      status: created.status,
       rulesVersion: RULES_VERSION,
       // The token is in the URL fragment, which browsers never send to the server.
       invites: created.tokens.map((t) => ({
         playerId: t.playerId,
         name: t.name,
+        open: t.open,
         url: `${publicUrl}/play/${created.gameId}#${t.token}`,
       })),
     };
   });
 
-  app.get<{ Params: { id: string }; Querystring: { since?: number; wait?: number } }>(
+  app.get<{ Params: { id: string }; Querystring: { since?: number; rev?: number; wait?: number } }>(
     "/api/games/:id",
     { schema: { params: gameParams, querystring: gameQuery } },
     async (req, reply) => {
-      const { game, seat } = store.authenticate(req.params.id, bearer(req));
-      const { since, wait } = req.query;
-      if (since !== undefined && since >= game.seq) {
+      const { seat } = store.authenticate(req.params.id, bearer(req));
+      const { since, rev, wait } = req.query;
+      const after = rev ?? since;
+      if (after !== undefined) {
         const abort = new AbortController();
         const onClose = () => abort.abort();
         reply.raw.once("close", onClose);
-        await store.waitForChange(req.params.id, since, Math.min(wait ?? defaultWaitMs, MAX_WAIT_MS), abort.signal);
+        const ms = Math.min(wait ?? defaultWaitMs, MAX_WAIT_MS);
+        await store.waitForChange(req.params.id, after, ms, abort.signal, rev !== undefined ? "rev" : "seq");
         reply.raw.off("close", onClose);
       }
       return store.response(store.load(req.params.id), seat.playerId);
     },
   );
+
+  // Claim your invited seat: pick a name and hero. Allowed again (to change them) until the game starts.
+  app.post<{ Params: { id: string }; Body: { name: string; archetype: Archetype } }>(
+    "/api/games/:id/claim",
+    { schema: { params: gameParams, body: claimBody } },
+    async (req) => {
+      const { seat } = store.authenticate(req.params.id, bearer(req));
+      const game = store.claim(req.params.id, seat.playerId, req.body.name.trim(), req.body.archetype);
+      return store.response(game, seat.playerId);
+    },
+  );
+
+  // The creator starts the game with the seats claimed so far.
+  app.post<{ Params: { id: string } }>("/api/games/:id/start", { schema: { params: gameParams } }, async (req) => {
+    const { seat } = store.authenticate(req.params.id, bearer(req));
+    const game = store.start(req.params.id, seat.playerId);
+    return store.response(game, seat.playerId);
+  });
 
   // Public game log: anyone with the game id (no seat token). Never includes private entries.
   app.get<{ Params: { id: string } }>("/api/games/:id/log", { schema: { params: gameParams } }, async (req) =>

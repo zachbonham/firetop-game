@@ -244,3 +244,19 @@ a.button.primary { background: var(--accent); color: #1a1a1a; font-weight: 600; 
 }
 .maze-hint { border-top-color: #7fd0ff; }
 .maze-hint b { color: #7fd0ff; }
+
+/* Open seats: the waiting room and hero picker */
+.portrait.open-seat { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); border-style: dashed; font-weight: 600; }
+.claim { display: grid; gap: 10px; }
+.claim > label input { margin-left: 6px; }
+.hero-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.hero-option { position: relative; display: flex; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.hero-option input { position: absolute; opacity: 0; pointer-events: none; }
+.hero-option.picked { border-color: var(--accent); background: #2b2a24; }
+.hero-option:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hero-option span { display: grid; gap: 2px; }
+.hero-option b { text-transform: capitalize; }
+.hero-option small { color: var(--muted); font-size: 12px; }
+.waiting-seats { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.waiting-seats li { display: flex; gap: 10px; align-items: center; }
+.waiting-seats li small { color: var(--muted); }

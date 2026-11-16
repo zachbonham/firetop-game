@@ -14,13 +14,18 @@ export interface GameRow {
   seed: number;
   config: Partial<GameConfig>;
   rulesVersion: number;
-  /** finished: someone won. abandoned: no human players were left (bots never win alone). */
-  status: "active" | "finished" | "abandoned";
+  /**
+   * waiting: some invited seats aren't claimed yet (no game state, no log yet).
+   * finished: someone won. abandoned: no human players were left (bots never win alone).
+   */
+  status: "waiting" | "active" | "finished" | "abandoned";
   createdAt: string;
   /** Time a human has to finish their turn before the server times it out. */
   turnSeconds: number;
-  /** When the current turn times out (ISO); null once the game is over. */
+  /** When the current turn times out (ISO); null while waiting and once the game is over. */
   deadline: string | null;
+  /** Bumped by every change that isn't an action: a seat claimed, the game started. */
+  lobbyRev: number;
 }
 
 export interface SeatRow {
@@ -30,6 +35,12 @@ export interface SeatRow {
   isBot: boolean;
   /** sha256(token) as hex; null for bot seats. */
   tokenHash: string | null;
+  /**
+   * open: invited, but its player hasn't picked a name and hero yet. claimed: in
+   * the game (bots always are). dropped: still open when the game started.
+   * Only claimed seats are players, in seat order.
+   */
+  status: "open" | "claimed" | "dropped";
 }
 
 export interface ActionRow {
@@ -47,7 +58,8 @@ CREATE TABLE IF NOT EXISTS games (
   status        TEXT NOT NULL,
   created_at    TEXT NOT NULL,
   turn_seconds  INTEGER NOT NULL DEFAULT 86400,
-  deadline      TEXT
+  deadline      TEXT,
+  lobby_rev     INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS seats (
   game_id    TEXT NOT NULL REFERENCES games(id),
@@ -57,6 +69,7 @@ CREATE TABLE IF NOT EXISTS seats (
   archetype  TEXT NOT NULL,
   is_bot     INTEGER NOT NULL,
   token_hash TEXT UNIQUE,
+  seat_status TEXT NOT NULL DEFAULT 'claimed',
   PRIMARY KEY (game_id, player_id)
 );
 CREATE TABLE IF NOT EXISTS actions (
@@ -85,6 +98,9 @@ export class Db {
     const cols = new Set(this.db.prepare("PRAGMA table_info(games)").all().map((r) => String(r.name)));
     if (!cols.has("turn_seconds")) this.db.exec("ALTER TABLE games ADD COLUMN turn_seconds INTEGER NOT NULL DEFAULT 86400");
     if (!cols.has("deadline")) this.db.exec("ALTER TABLE games ADD COLUMN deadline TEXT");
+    if (!cols.has("lobby_rev")) this.db.exec("ALTER TABLE games ADD COLUMN lobby_rev INTEGER NOT NULL DEFAULT 0");
+    const seatCols = new Set(this.db.prepare("PRAGMA table_info(seats)").all().map((r) => String(r.name)));
+    if (!seatCols.has("seat_status")) this.db.exec("ALTER TABLE seats ADD COLUMN seat_status TEXT NOT NULL DEFAULT 'claimed'");
     this.db.exec("CREATE INDEX IF NOT EXISTS games_due ON games (status, deadline)");
   }
 
@@ -111,9 +127,9 @@ export class Db {
         .prepare("INSERT INTO games (id, seed, config, rules_version, status, created_at, turn_seconds, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .run(game.id, game.seed, JSON.stringify(game.config), game.rulesVersion, game.status, game.createdAt, game.turnSeconds, game.deadline);
       const ins = this.db.prepare(
-        "INSERT INTO seats (game_id, seat_index, player_id, name, archetype, is_bot, token_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO seats (game_id, seat_index, player_id, name, archetype, is_bot, token_hash, seat_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
-      seats.forEach((s, i) => ins.run(game.id, i, s.playerId, s.name, s.archetype, s.isBot ? 1 : 0, s.tokenHash));
+      seats.forEach((s, i) => ins.run(game.id, i, s.playerId, s.name, s.archetype, s.isBot ? 1 : 0, s.tokenHash, s.status));
     });
   }
 
@@ -129,6 +145,7 @@ export class Db {
       createdAt: String(r.created_at),
       turnSeconds: Number(r.turn_seconds),
       deadline: r.deadline === null ? null : String(r.deadline),
+      lobbyRev: Number(r.lobby_rev),
     };
   }
 
@@ -142,6 +159,7 @@ export class Db {
         archetype: String(r.archetype) as Archetype,
         isBot: Number(r.is_bot) === 1,
         tokenHash: r.token_hash === null ? null : String(r.token_hash),
+        status: String(r.seat_status) as SeatRow["status"],
       }));
   }
 
@@ -161,6 +179,24 @@ export class Db {
   /** Status and turn deadline after a commit (call inside `transaction`). */
   setTurn(gameId: string, status: GameRow["status"], deadline: string | null): void {
     this.db.prepare("UPDATE games SET status = ?, deadline = ? WHERE id = ?").run(status, deadline, gameId);
+  }
+
+  /** A player claims their invited seat, or changes their name or hero, while the game is waiting. */
+  claimSeat(gameId: string, playerId: string, name: string, archetype: Archetype): void {
+    this.transaction(() => {
+      this.db
+        .prepare("UPDATE seats SET name = ?, archetype = ?, seat_status = 'claimed' WHERE game_id = ? AND player_id = ?")
+        .run(name, archetype, gameId, playerId);
+      this.db.prepare("UPDATE games SET lobby_rev = lobby_rev + 1 WHERE id = ?").run(gameId);
+    });
+  }
+
+  /** Start a waiting game: seats still open are dropped and the turn clock starts. */
+  startGame(gameId: string, deadline: string): void {
+    this.transaction(() => {
+      this.db.prepare("UPDATE seats SET seat_status = 'dropped' WHERE game_id = ? AND seat_status = 'open'").run(gameId);
+      this.db.prepare("UPDATE games SET status = 'active', deadline = ?, lobby_rev = lobby_rev + 1 WHERE id = ?").run(deadline, gameId);
+    });
   }
 
   /** Active games whose turn deadline is at or before `now` (ISO strings compare in time order). */

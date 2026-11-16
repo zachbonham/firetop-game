@@ -11,6 +11,8 @@ export interface StoredSeat {
   token: string;
   /** Display name for the "your games" list. */
   name?: string;
+  /** The creator's copy of the invite links, so the waiting room can show them again. */
+  invites?: { playerId: string; url: string }[];
   savedAt: string;
 }
 
@@ -22,9 +24,18 @@ function readAll(): Record<string, StoredSeat> {
   }
 }
 
-export function saveSeat(gameId: string, token: string, name?: string): void {
+/** Save (or update) this device's seat in a game. A different token replaces the old seat outright. */
+export function saveSeat(gameId: string, token: string, name?: string, invites?: StoredSeat["invites"]): void {
   const all = readAll();
-  all[gameId] = { gameId, token, ...(name ? { name } : {}), savedAt: new Date().toISOString() };
+  const old = all[gameId]?.token === token ? all[gameId] : undefined;
+  all[gameId] = {
+    ...old,
+    gameId,
+    token,
+    ...(name ? { name } : {}),
+    ...(invites ? { invites } : {}),
+    savedAt: old?.savedAt ?? new Date().toISOString(),
+  };
   localStorage.setItem(KEY, JSON.stringify(all));
 }
 

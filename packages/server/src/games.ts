@@ -18,11 +18,11 @@ export class ApiError extends Error {
 export const TURN_LENGTHS = [3600, 43_200, 86_400, 259_200] as const;
 export const DEFAULT_TURN_SECONDS = 86_400;
 
-export interface NewSeat {
-  name: string;
-  archetype: Archetype;
-  bot: boolean;
-}
+/**
+ * A seat in a new game: a bot or a person with a name and hero, or an open
+ * seat whose player picks their own name and hero from the invite link.
+ */
+export type NewSeat = { name: string; archetype: Archetype; bot?: boolean } | { open: true };
 
 export interface NewGameInput {
   seed?: number;
@@ -34,38 +34,50 @@ export interface NewGameInput {
 
 export interface CreatedGame {
   gameId: string;
+  status: GameRow["status"];
   /** One secret token per human seat (never stored: only its sha256 is). */
-  tokens: { playerId: string; name: string; token: string }[];
+  tokens: { playerId: string; name: string; open: boolean; token: string }[];
 }
 
 /** A game as held in memory: its stored setup plus the state rebuilt from the log. */
 export interface LiveGame {
   row: GameRow;
   seats: SeatRow[];
-  state: GameState;
+  /** null while the game is waiting for players. */
+  state: GameState | null;
   /** Number of actions in the log (0 = nothing played yet). */
   seq: number;
 }
 
 export interface PublicSeat {
   playerId: string;
+  /** "" for an open seat. */
   name: string;
-  archetype: Archetype;
+  /** null for an open seat. */
+  archetype: Archetype | null;
   bot: boolean;
+  /** Still waiting for its player to claim it. */
+  open: boolean;
 }
 
 /** Everything a client gets about a game: always built from playerView. */
 export interface GameResponse {
   gameId: string;
   seq: number;
+  /** Goes up with every change to the game, including seats claimed before it starts (long-poll with `rev`). */
+  rev: number;
   playerId: string;
+  /** This seat created the game, so it may start it before every seat is claimed. */
+  host: boolean;
+  /** While waiting, every seat (open ones too); once started, only the players. */
   seats: PublicSeat[];
-  /** active, finished (someone won) or abandoned (no human players left). */
+  /** waiting (for players), active, finished (someone won) or abandoned (no human players left). */
   status: GameRow["status"];
   turnSeconds: number;
-  /** When the current turn times out (ISO), or null once the game is over. */
+  /** When the current turn times out (ISO), or null while waiting and once the game is over. */
   deadline: string | null;
-  view: PlayerView;
+  /** null while the game is waiting for players. */
+  view: PlayerView | null;
 }
 
 /** What anyone with the game id may see: the public log, no seat token needed. */
@@ -76,7 +88,7 @@ export interface PublicLogResponse {
   turn: number;
   turnSeconds: number;
   deadline: string | null;
-  seats: (PublicSeat & { status: "active" | "removed" })[];
+  seats: (Omit<PublicSeat, "open"> & { status: "open" | "joined" | "active" | "removed" })[];
   winner: string | null;
   log: PlayerView["log"];
 }
@@ -91,6 +103,20 @@ export interface StoreOptions {
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+/** The players of a game, in turn order: its claimed seats. */
+function lineup(seats: SeatRow[]): SeatRow[] {
+  return seats.filter((s) => s.status === "claimed");
+}
+
+function setupFor(row: GameRow, players: SeatRow[]) {
+  return { seed: row.seed, config: row.config, players: players.map((s) => ({ id: s.playerId, name: s.name, archetype: s.archetype })) };
+}
+
+/** The seat that created the game: the first human seat (never an open one). */
+function hostOf(seats: SeatRow[]): SeatRow | undefined {
+  return seats.find((s) => !s.isBot);
 }
 
 export class GameStore {
@@ -108,7 +134,12 @@ export class GameStore {
   }
 
   create(input: NewGameInput): CreatedGame {
-    if (!input.seats.some((s) => !s.bot)) throw new ApiError(400, "a game needs at least one human seat", "bad_request");
+    const isOpen = (s: NewSeat): s is { open: true } => "open" in s;
+    if (!input.seats.some((s) => isOpen(s) || !s.bot)) throw new ApiError(400, "a game needs at least one human seat", "bad_request");
+    const firstHuman = input.seats.find((s) => isOpen(s) || !s.bot);
+    if (firstHuman && isOpen(firstHuman)) {
+      throw new ApiError(400, "the first human seat is the creator's own: give it a name and hero", "bad_request");
+    }
     const turnSeconds = input.turnSeconds ?? DEFAULT_TURN_SECONDS;
     if (!(TURN_LENGTHS as readonly number[]).includes(turnSeconds)) {
       throw new ApiError(400, `turnSeconds must be one of ${TURN_LENGTHS.join(", ")}`, "bad_request");
@@ -122,34 +153,36 @@ export class GameStore {
     const tokens: CreatedGame["tokens"] = [];
     input.seats.forEach((s, i) => {
       const playerId = `p${i + 1}`;
+      const open = isOpen(s);
+      const bot = !open && !!s.bot;
       let tokenHash: string | null = null;
-      if (!s.bot) {
+      if (!bot) {
         const token = randomBytes(32).toString("base64url");
         tokenHash = hashToken(token);
-        tokens.push({ playerId, name: s.name, token });
+        tokens.push({ playerId, name: open ? "" : s.name, open, token });
       }
-      seats.push({ playerId, name: s.name, archetype: s.archetype, isBot: s.bot, tokenHash });
+      // An open seat's name and hero are placeholders until its player claims it.
+      seats.push({
+        playerId, name: open ? "" : s.name, archetype: open ? "warrior" : s.archetype, isBot: bot, tokenHash,
+        status: open ? "open" : "claimed",
+      });
     });
+    const waiting = seats.some((s) => s.status === "open");
 
-    let state: GameState;
-    try {
-      state = createGame({ seed, config, players: seats.map((s) => ({ id: s.playerId, name: s.name, archetype: s.archetype })) });
-    } catch (e) {
-      throw new ApiError(400, `cannot set up this game: ${e instanceof Error ? e.message : String(e)}`, "bad_config");
-    }
-    const broken = checkInvariants(state);
-    if (broken.length) throw new ApiError(400, `cannot set up this game: ${broken.join("; ")}`, "bad_config");
-
+    // Check the setup now, as if every seat were filled, so a bad config fails here and not at start.
     const createdAt = this.now();
     const row: GameRow = {
-      id: randomBytes(9).toString("base64url"), seed, config, rulesVersion: RULES_VERSION, status: "active", createdAt,
-      turnSeconds, deadline: this.deadlineFrom(createdAt, turnSeconds),
+      id: randomBytes(9).toString("base64url"), seed, config, rulesVersion: RULES_VERSION,
+      status: waiting ? "waiting" : "active", createdAt, turnSeconds,
+      deadline: waiting ? null : this.deadlineFrom(createdAt, turnSeconds), lobbyRev: 0,
     };
+    const state = this.setUp(row, waiting ? seats : lineup(seats));
+
     this.db.insertGame(row, seats);
-    const game: LiveGame = { row, seats, state, seq: 0 };
+    const game: LiveGame = { row, seats, state: waiting ? null : state, seq: 0 };
     this.remember(game);
-    this.advanceBots(game);
-    return { gameId: row.id, tokens };
+    if (!waiting) this.advanceBots(game);
+    return { gameId: row.id, status: row.status, tokens };
   }
 
   /** Load a game, rebuilding its state from the log (cached). */
@@ -169,11 +202,12 @@ export class GameStore {
       );
     }
     const seats = this.db.getSeats(gameId);
-    let state = createGame({
-      seed: row.seed,
-      config: row.config,
-      players: seats.map((s) => ({ id: s.playerId, name: s.name, archetype: s.archetype })),
-    });
+    if (row.status === "waiting") {
+      const game: LiveGame = { row, seats, state: null, seq: 0 };
+      this.remember(game);
+      return game;
+    }
+    let state = createGame(setupFor(row, lineup(seats)));
     const actions = this.db.getActions(gameId);
     actions.forEach((a, i) => {
       if (a.seq !== i + 1) throw new ApiError(500, `game ${gameId}: action log has a gap at seq ${i + 1}`, "corrupt");
@@ -195,7 +229,43 @@ export class GameStore {
     const hash = Buffer.from(hashToken(token), "hex");
     const seat = game.seats.find((s) => s.tokenHash !== null && timingSafeEqual(Buffer.from(s.tokenHash, "hex"), hash));
     if (!seat) throw new ApiError(401, "this token is not a seat in this game", "unauthorized");
+    if (seat.status === "dropped") {
+      throw new ApiError(410, "this game started before this seat was claimed, so it went ahead without it", "seat_dropped");
+    }
     return { game, seat };
+  }
+
+  /**
+   * A player claims their invited seat (or changes their name or hero) while the
+   * game is waiting. Once every invited seat is claimed, the game starts.
+   */
+  claim(gameId: string, playerId: string, name: string, archetype: Archetype): LiveGame {
+    const game = this.load(gameId);
+    if (game.row.status !== "waiting") throw new ApiError(409, "this game has already started", "started");
+    const seat = game.seats.find((s) => s.playerId === playerId);
+    if (!seat || seat.isBot) throw new ApiError(400, "not a seat you can claim", "bad_request");
+    this.db.claimSeat(gameId, playerId, name, archetype);
+    seat.name = name;
+    seat.archetype = archetype;
+    seat.status = "claimed";
+    game.row.lobbyRev++;
+    if (!game.seats.some((s) => s.status === "open")) this.begin(game);
+    else this.changed(game);
+    return game;
+  }
+
+  /** The creator starts a waiting game with the seats claimed so far; open seats are dropped. */
+  start(gameId: string, playerId: string): LiveGame {
+    const game = this.load(gameId);
+    if (game.row.status !== "waiting") throw new ApiError(409, "this game has already started", "started");
+    if (hostOf(game.seats)?.playerId !== playerId) {
+      throw new ApiError(403, "only the player who created the game can start it", "not_host");
+    }
+    if (lineup(game.seats).length < 2) {
+      throw new ApiError(409, "a game needs at least 2 players: wait for someone to join", "too_few");
+    }
+    this.begin(game);
+    return game;
   }
 
   /**
@@ -205,7 +275,8 @@ export class GameStore {
    */
   act(gameId: string, playerId: string, action: Action, expectedSeq: number): LiveGame {
     const game = this.load(gameId);
-    if (game.row.status !== "active") throw new ApiError(409, `this game is ${game.row.status}`, "game_over");
+    if (game.row.status === "waiting") throw new ApiError(409, "this game hasn't started yet", "not_started");
+    if (game.row.status !== "active" || !game.state) throw new ApiError(409, `this game is ${game.row.status}`, "game_over");
     if (expectedSeq !== game.seq) {
       throw new ApiError(409, `the game has moved on (seq ${game.seq}, you sent ${expectedSeq}); reload and try again`, "stale_seq");
     }
@@ -219,34 +290,48 @@ export class GameStore {
   }
 
   response(game: LiveGame, playerId: string): GameResponse {
+    const seats = game.state ? lineup(game.seats) : game.seats.filter((s) => s.status !== "dropped");
     return {
       gameId: game.row.id,
       seq: game.seq,
+      rev: rev(game),
       playerId,
-      seats: game.seats.map((s) => ({ playerId: s.playerId, name: s.name, archetype: s.archetype, bot: s.isBot })),
+      host: hostOf(game.seats)?.playerId === playerId,
+      seats: seats.map(publicSeat),
       status: game.row.status,
       turnSeconds: game.row.turnSeconds,
       deadline: game.row.deadline,
-      view: playerView(game.state, playerId),
+      view: game.state ? playerView(game.state, playerId) : null,
     };
   }
 
   /** The public log and seat list, for spectators (no secrets, no private log entries). */
   publicLog(gameId: string): PublicLogResponse {
     const game = this.load(gameId);
-    const view = playerView(game.state, null);
+    const state = game.state;
+    if (!state) {
+      return {
+        gameId: game.row.id, seq: 0, status: game.row.status, turn: 0, turnSeconds: game.row.turnSeconds, deadline: null,
+        seats: game.seats.map((s) => {
+          const { open, ...seat } = publicSeat(s);
+          return { ...seat, status: open ? "open" : "joined" };
+        }),
+        winner: null, log: [],
+      };
+    }
+    const view = playerView(state, null);
     return {
       gameId: game.row.id,
       seq: game.seq,
       status: game.row.status,
-      turn: game.state.turn,
+      turn: state.turn,
       turnSeconds: game.row.turnSeconds,
       deadline: game.row.deadline,
-      seats: game.seats.map((s) => ({
-        playerId: s.playerId, name: s.name, archetype: s.archetype, bot: s.isBot,
-        status: game.state.players.find((p) => p.id === s.playerId)!.status,
-      })),
-      winner: game.row.status === "finished" ? game.state.winner : null,
+      seats: lineup(game.seats).map((s) => {
+        const { open: _open, ...seat } = publicSeat(s);
+        return { ...seat, status: state.players.find((p) => p.id === s.playerId)!.status };
+      }),
+      winner: game.row.status === "finished" ? state.winner : null,
       log: view.log,
     };
   }
@@ -267,7 +352,7 @@ export class GameStore {
       } catch {
         continue; // e.g. stored under other rules: leave it alone
       }
-      if (game.row.status !== "active" || game.row.deadline === null || game.row.deadline > now) continue;
+      if (game.row.status !== "active" || !game.state || game.row.deadline === null || game.row.deadline > now) continue;
       const r = applyAction(game.state, "system", { type: "timeout" });
       if (!r.ok) continue;
       const rows: ActionRow[] = [{ seq: game.seq + 1, actor: "system", action: { type: "timeout" } }];
@@ -279,9 +364,14 @@ export class GameStore {
     return n;
   }
 
-  /** Resolve once the game's seq passes `since`, or after `ms` (or on `signal` abort). */
-  waitForChange(gameId: string, since: number, ms: number, signal?: AbortSignal): Promise<void> {
-    if (this.load(gameId).seq > since) return Promise.resolve();
+  /**
+   * Resolve once the game moves past `since`, or after `ms` (or on `signal` abort).
+   * `by` says what `since` counts: "seq" (actions only) or "rev" (any change,
+   * including seats claimed while the game waits for players).
+   */
+  waitForChange(gameId: string, since: number, ms: number, signal?: AbortSignal, by: "seq" | "rev" = "seq"): Promise<void> {
+    const at = (g: LiveGame) => (by === "rev" ? rev(g) : g.seq);
+    if (at(this.load(gameId)) > since) return Promise.resolve();
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer);
@@ -289,8 +379,8 @@ export class GameStore {
         signal?.removeEventListener("abort", done);
         resolve();
       };
-      const onChange = (seq: number) => {
-        if (seq > since) done();
+      const onChange = (g: LiveGame) => {
+        if (at(g) > since) done();
       };
       const timer = setTimeout(done, ms);
       this.changes.on(gameId, onChange);
@@ -303,7 +393,35 @@ export class GameStore {
     this.cache.clear();
   }
 
+  /** Set up the engine state for these players, or a 400 if this game can't be set up. */
+  private setUp(row: GameRow, players: SeatRow[]): GameState {
+    let state: GameState;
+    try {
+      state = createGame(setupFor(row, players));
+    } catch (e) {
+      throw new ApiError(400, `cannot set up this game: ${e instanceof Error ? e.message : String(e)}`, "bad_config");
+    }
+    const broken = checkInvariants(state);
+    if (broken.length) throw new ApiError(400, `cannot set up this game: ${broken.join("; ")}`, "bad_config");
+    return state;
+  }
+
+  /** Start a waiting game with its claimed seats; the rest are dropped. */
+  private begin(game: LiveGame): void {
+    const state = this.setUp(game.row, lineup(game.seats));
+    for (const s of game.seats) if (s.status === "open") s.status = "dropped";
+    const deadline = this.deadlineFrom(this.now(), game.row.turnSeconds);
+    this.db.startGame(game.row.id, deadline);
+    game.row.status = "active";
+    game.row.deadline = deadline;
+    game.row.lobbyRev++;
+    game.state = state;
+    this.changed(game);
+    this.advanceBots(game);
+  }
+
   private advanceBots(game: LiveGame): void {
+    if (!game.state) return;
     const bots = this.playBots(game.seats, game.state, game.seq);
     if (bots.rows.length) this.commit(game, bots.rows, bots.state);
   }
@@ -339,7 +457,7 @@ export class GameStore {
     // (or another player changing their settings).
     const deadline = status !== "active"
       ? null
-      : state.turn !== game.state.turn || game.row.deadline === null
+      : state.turn !== game.state?.turn || game.row.deadline === null
         ? this.deadlineFrom(now, game.row.turnSeconds)
         : game.row.deadline;
     this.db.transaction(() => {
@@ -350,7 +468,11 @@ export class GameStore {
     game.seq += rows.length;
     game.row.status = status;
     game.row.deadline = deadline;
-    this.changes.emit(game.row.id, game.seq);
+    this.changed(game);
+  }
+
+  private changed(game: LiveGame): void {
+    this.changes.emit(game.row.id, game);
   }
 
   private deadlineFrom(iso: string, seconds: number): string {
@@ -368,7 +490,15 @@ export class GameStore {
   }
 }
 
+/** Every change to a game moves this up: actions, plus claims and the start. */
+function rev(game: LiveGame): number {
+  return game.seq + game.row.lobbyRev;
+}
 
+function publicSeat(s: SeatRow): PublicSeat {
+  const open = s.status === "open";
+  return { playerId: s.playerId, name: s.name, archetype: open ? null : s.archetype, bot: s.isBot, open };
+}
 
 /** Is any human seat still in the game? */
 function humansLeft(seats: SeatRow[], state: GameState): boolean {
