@@ -1,3 +1,4 @@
+import { HelpButton } from "../Help.js";
 import { useState } from "react";
 import type { Archetype } from "@firetop/engine";
 import { Portrait } from "../Cards.js";
@@ -55,7 +56,7 @@ export function Lobby() {
 
   return (
     <div className="setup online">
-      <h1>Firetop Mountain <small>online</small></h1>
+      <h1>Firetop Mountain <small>online</small> <HelpButton /></h1>
       <section className="card">
         <h2>New game</h2>
         <table className="seats">

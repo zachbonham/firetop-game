@@ -1,3 +1,4 @@
+import { HelpButton } from "./Help.js";
 import { useState } from "react";
 import { BOARD, DEFAULT_CONFIG, ITEM_NAMES, type Archetype, type GameConfig, type ItemId } from "@firetop/engine";
 import { fromSave, type Seat, type Session, type SessionSetup } from "./session.js";
@@ -98,7 +99,7 @@ export function Setup({ initial, onStart, onLoad }: Props) {
 
   return (
     <div className="setup">
-      <h1>Firetop Mountain <small>local test board</small></h1>
+      <h1>Firetop Mountain <small>local test board</small> <HelpButton /></h1>
 
       <section className="card">
         <h2>Players</h2>

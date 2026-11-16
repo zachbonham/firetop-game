@@ -1,3 +1,4 @@
+import { HelpButton } from "../Help.js";
 import { useState } from "react";
 import type { Archetype } from "@firetop/engine";
 import { Portrait } from "../Cards.js";
@@ -50,7 +51,7 @@ export function WaitingRoom({ game, token, onUpdate }: { game: GameResponse; tok
 
   return (
     <div className="setup online">
-      <h1>Firetop Mountain <small>waiting for players</small></h1>
+      <h1>Firetop Mountain <small>waiting for players</small> <HelpButton /></h1>
 
       {showForm && (
         <section className="card">
